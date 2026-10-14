@@ -1,6 +1,7 @@
 
--- My First UI | Neon Cyan
--- สำหรับ LocalScript ใน Roblox ที่รองรับ
+
+-- My First UI - Neon Cyan
+-- UI demonstration for a supported Roblox LocalScript
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -8,10 +9,10 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- ป้องกัน UI ซ้ำ
+-- Remove old copy
 local oldGui = playerGui:FindFirstChild("MyFirstUI")
 if oldGui then
-oldGui:Destroy()
+    oldGui:Destroy()
 end
 
 local cyan = Color3.fromRGB(0, 220, 255)
@@ -25,27 +26,27 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 10
 gui.Parent = playerGui
 
--- หน้าต่างหลัก
+-- Main window
 local frame = Instance.new("Frame")
 frame.Name = "Main"
-frame.Size = UDim2.fromOffset(280, 220)
+frame.Size = UDim2.fromOffset(280, 190)
 frame.Position = UDim2.new(0.5, -140, 0.35, 0)
 frame.BackgroundColor3 = dark
 frame.BorderSizePixel = 0
-frame.ClipsDescendants = true
 frame.Parent = gui
 
-local frameCorner = Instance.new("UICorner")
-frameCorner.CornerRadius = UDim.new(0, 12)
-frameCorner.Parent = frame
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = frame
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = cyan
-stroke.Thickness = 1.5
-stroke.Parent = frame
+local outline = Instance.new("UIStroke")
+outline.Color = cyan
+outline.Thickness = 1.5
+outline.Parent = frame
 
--- แถบชื่อ ใช้ลากหน้าต่าง
+-- Header
 local header = Instance.new("Frame")
+header.Name = "Header"
 header.Size = UDim2.new(1, 0, 0, 42)
 header.BackgroundColor3 = panel
 header.BorderSizePixel = 0
@@ -53,8 +54,8 @@ header.Active = true
 header.Parent = frame
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -100, 1, 0)
-title.Position = UDim2.fromOffset(12, 0)
+title.Size = UDim2.new(1, -95, 1, 0)
+title.Position = UDim2.fromOffset(10, 0)
 title.BackgroundTransparency = 1
 title.Text = "MY FIRST UI"
 title.TextColor3 = cyan
@@ -63,143 +64,157 @@ title.Font = Enum.Font.GothamBold
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
--- ปุ่มสร้างแบบใช้ซ้ำ
-local function makeButton(name, text, position, size)
-local button = Instance.new("TextButton")
-button.Name = name
-button.Text = text
-button.Position = position
-button.Size = size
-button.BackgroundColor3 = panel
-button.TextColor3 = white
-button.TextSize = 14
-button.Font = Enum.Font.GothamMedium
-button.AutoButtonColor = true
-button.Parent = frame
+-- Header buttons
+local function headerButton(name, text, x)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = UDim2.fromOffset(32, 30)
+    button.Position = UDim2.new(1, x, 0, 6)
+    button.BackgroundColor3 = dark
+    button.TextColor3 = cyan
+    button.Text = text
+    button.TextSize = 20
+    button.Parent = header
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 7)
-corner.Parent = button
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = button
 
-local border = Instance.new("UIStroke")
-border.Color = cyan
-border.Thickness = 1
-border.Parent = button
-
-return button
+    return button
 end
 
-local minimize = Instance.new("TextButton")
-minimize.Name = "Minimize"
-minimize.Size = UDim2.fromOffset(35, 30)
-minimize.Position = UDim2.new(1, -80, 0, 6)
-minimize.Text = "-"
-minimize.TextSize = 22
-minimize.BackgroundColor3 = dark
-minimize.TextColor3 = cyan
-minimize.Parent = header
+local minimizeButton = headerButton("Minimize", "-", -74)
+local hideButton = headerButton("Hide", "×", -38)
 
-local close = Instance.new("TextButton")
-close.Name = "HideUI"
-close.Size = UDim2.fromOffset(35, 30)
-close.Position = UDim2.new(1, -40, 0, 6)
-close.Text = "×"
-close.TextSize = 22
-close.BackgroundColor3 = dark
-close.TextColor3 = cyan
-close.Parent = header
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleContent"
+toggleButton.Size = UDim2.new(1, -24, 0, 40)
+toggleButton.Position = UDim2.fromOffset(12, 55)
+toggleButton.BackgroundColor3 = panel
+toggleButton.TextColor3 = white
+toggleButton.TextSize = 14
+toggleButton.Text = "ซ่อนข้อความ"
+toggleButton.Parent = frame
 
-local function styleHeaderButton(button)
-local c = Instance.new("UICorner")
-c.CornerRadius = UDim.new(0, 6)
-c.Parent = button
-end
-
-styleHeaderButton(minimize)
-styleHeaderButton(close)
-
-local toggle = makeButton(
-"Toggle",
-"ปิดระบบแสดงข้อความ",
-UDim2.fromOffset(12, 55),
-UDim2.new(1, -24, 0, 38)
-)
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleButton
 
 local status = Instance.new("TextLabel")
 status.Name = "Status"
-status.Position = UDim2.fromOffset(12, 103)
-status.Size = UDim2.new(1, -24, 0, 65)
-status.BackgroundColor3 = panel
+status.Size = UDim2.new(1, -24, 0, 55)
+status.Position = UDim2.fromOffset(12, 105)
+status.BackgroundTransparency = 1
 status.TextColor3 = white
 status.TextSize = 14
-status.Font = Enum.Font.Gotham
 status.TextWrapped = true
-status.Text = "สถานะ: พร้อมใช้งาน\nMy First UI เริ่มทำงานแล้ว"
+status.Text = "สถานะ: พร้อมใช้งาน"
 status.Parent = frame
 
-local statusCorner = Instance.new("UICorner")
-statusCorner.CornerRadius = UDim.new(0, 8)
-statusCorner.Parent = status
-
-local footer = Instance.new("TextLabel")
-footer.Size = UDim2.new(1, -24, 0, 25)
-footer.Position = UDim2.new(0, 12, 1, -30)
-footer.BackgroundTransparency = 1
-footer.Text = "NEON CYAN • MOBILE UI"
-footer.TextColor3 = cyan
-footer.TextSize = 11
-footer.Parent = frame
-
--- ปุ่มลอยสำหรับเปิด UI กลับ
-local reopen = Instance.new("TextButton")
-reopen.Name = "ReopenUI"
-reopen.Size = UDim2.fromOffset(115, 42)
-reopen.Position = UDim2.new(0, 15, 0.5, 0)
-reopen.Text = "เปิด My UI"
-reopen.TextColor3 = cyan
-reopen.TextSize = 14
-reopen.BackgroundColor3 = dark
-reopen.Visible = false
-reopen.Parent = gui
+-- Floating button to reopen hidden window
+local reopenButton = Instance.new("TextButton")
+reopenButton.Name = "Reopen"
+reopenButton.Size = UDim2.fromOffset(120, 42)
+reopenButton.Position = UDim2.new(0, 12, 0.5, 0)
+reopenButton.BackgroundColor3 = dark
+reopenButton.TextColor3 = cyan
+reopenButton.Text = "เปิด My UI"
+reopenButton.TextSize = 14
+reopenButton.Visible = false
+reopenButton.Parent = gui
 
 local reopenCorner = Instance.new("UICorner")
-reopenCorner.CornerRadius = UDim.new(0, 10)
-reopenCorner.Parent = reopen
+reopenCorner.CornerRadius = UDim.new(0, 8)
+reopenCorner.Parent = reopenButton
 
 local reopenStroke = Instance.new("UIStroke")
 reopenStroke.Color = cyan
-reopenStroke.Parent = reopen
+reopenStroke.Parent = reopenButton
 
--- เปิด/ปิดเนื้อหา
-local enabled = true
+-- Toggle content
+local contentVisible = true
 
-toggle.Activated:Connect(function()
-enabled = not enabled
-status.Visible = enabled
-footer.Visible = enabled
+toggleButton.Activated:Connect(function()
+    contentVisible = not contentVisible
+    status.Visible = contentVisible
 
-toggle.Text = enabled
-and "ปิดระบบแสดงข้อความ"
-or "เปิดระบบแสดงข้อความ"
+    toggleButton.Text = contentVisible
+        and "ซ่อนข้อความ"
+        or "แสดงข้อความ"
 
-status.Text = enabled
-and "สถานะ: เปิด\nMy First UI พร้อมใช้งาน"
-or "สถานะ: ปิดการแสดงข้อความ"
+    status.Text = contentVisible
+        and "สถานะ: พร้อมใช้งาน"
+        or "ซ่อนข้อความแล้ว"
 end)
 
--- ย่อ/ขยาย
+-- Minimize and restore
 local minimized = false
 
-minimize.Activated:Connect(function()
-minimized = not minimized
+minimizeButton.Activated:Connect(function()
+    minimized = not minimized
 
-toggle.Visible = not minimized
-status.Visible = not minimized and enabled
-footer.Visible = not minimized and enabled
+    frame.Size = minimized
+        and UDim2.fromOffset(280, 42)
+        or UDim2.fromOffset(280, 190)
 
-frame.Size = minimized
-and UDim2.fromOffset(280, 42)
-or UDim2.fromOffset(280, 220)
-
-minimize.Text = minimized and "+" or "-"
+    toggleButton.Visible = not minimized
+    status.Visible = not minimized and contentVisible
+    minimizeButton.Text = minimized and "+" or "-"
 end)
+
+-- Hide and reopen entire window
+hideButton.Activated:Connect(function()
+    frame.Visible = false
+    reopenButton.Visible = true
+end)
+
+reopenButton.Activated:Connect(function()
+    frame.Visible = true
+    reopenButton.Visible = false
+end)
+
+-- Touch and mouse dragging
+local dragging = false
+local dragStart
+local startPosition
+local activeInput
+
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragStart = input.Position
+        startPosition = frame.Position
+        activeInput = input
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                activeInput = nil
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseMovement then
+
+        local delta = input.Position - dragStart
+
+        frame.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end
+end)
+
+print("My First UI ready")
+
