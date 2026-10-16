@@ -1,167 +1,183 @@
-
--- My First UI
--- UI ทดสอบปุ่มสำหรับ LocalScript
--- ใช้ในเกมที่คุณมีสิทธิ์แก้ไข
+-- My First UI FARM
+-- LocalScript สำหรับเกม Roblox ของคุณเอง
+-- EXP / Coins เป็นข้อมูลจำลองเท่านั้น
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-if not player then
-    warn("ต้องรันจาก LocalScript")
-    return
-end
-
 local playerGui = player:WaitForChild("PlayerGui")
 
-local oldGui = playerGui:FindFirstChild("MyFirstUI")
-if oldGui then
-    oldGui:Destroy()
+local old = playerGui:FindFirstChild("MyFirstUI")
+if old then
+    old:Destroy()
 end
 
-local farmEnabled = false
-local minimized = false
+local cyan = Color3.fromRGB(0, 220, 255)
+local dark = Color3.fromRGB(7, 15, 32)
+local panelColor = Color3.fromRGB(12, 28, 52)
+local green = Color3.fromRGB(40, 235, 150)
+local red = Color3.fromRGB(255, 80, 105)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "MyFirstUI"
 gui.ResetOnSpawn = false
 gui.Parent = playerGui
 
-local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(280, 270)
-frame.Position = UDim2.new(0.5, -140, 0.35, 0)
-frame.BackgroundColor3 = Color3.fromRGB(12, 20, 38)
-frame.Active = true
-frame.Parent = gui
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.fromOffset(300, 300)
+main.Position = UDim2.new(0.5, -150, 0.5, -150)
+main.BackgroundColor3 = dark
+main.BorderSizePixel = 0
+main.Active = true
+main.Parent = gui
 
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = frame
+corner.CornerRadius = UDim.new(0, 14)
+corner.Parent = main
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 220, 255)
-stroke.Thickness = 2
-stroke.Parent = frame
+local outline = Instance.new("UIStroke")
+outline.Color = cyan
+outline.Thickness = 2
+outline.Parent = main
 
-local title = Instance.new("TextButton")
-title.Size = UDim2.new(1, -80, 0, 42)
-title.BackgroundTransparency = 1
-title.Text = "MY FIRST UI"
-title.TextColor3 = Color3.fromRGB(0, 220, 255)
-title.TextSize = 18
-title.Font = Enum.Font.GothamBold
-title.Parent = frame
-
-local function makeButton(name, text, y, color)
-    local b = Instance.new("TextButton")
-    b.Name = name
-    b.Size = UDim2.new(1, -24, 0, 42)
-    b.Position = UDim2.fromOffset(12, y)
-    b.BackgroundColor3 = color
-    b.Text = text
-    b.TextColor3 = Color3.new(1, 1, 1)
-    b.TextSize = 15
-    b.Font = Enum.Font.GothamBold
-    b.Active = true
-    b.Parent = frame
-
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, 8)
-    c.Parent = b
-
-    return b
+local function makeLabel(text, y, height, size)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -24, 0, height)
+    label.Position = UDim2.fromOffset(12, y)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(235, 250, 255)
+    label.TextSize = size
+    label.Font = Enum.Font.GothamBold
+    label.Parent = main
+    return label
 end
 
-local minimize = Instance.new("TextButton")
-minimize.Size = UDim2.fromOffset(36, 30)
-minimize.Position = UDim2.new(1, -42, 0, 6)
-minimize.Text = "-"
-minimize.TextSize = 22
-minimize.Parent = frame
+local header = Instance.new("TextButton")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 48)
+header.BackgroundColor3 = panelColor
+header.Text = "MY FIRST UI     —"
+header.TextColor3 = cyan
+header.TextSize = 18
+header.Font = Enum.Font.GothamBold
+header.Parent = main
 
-local farmButton = makeButton(
-    "FarmButton", "FARM: OFF", 52,
-    Color3.fromRGB(150, 45, 55)
-)
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 12)
+headerCorner.Parent = header
 
-local testButton = makeButton(
-    "TestButton", "ทดสอบปุ่ม", 102,
-    Color3.fromRGB(25, 100, 180)
-)
+local status = makeLabel("STATUS: OFF", 57, 25, 14)
+local stats = makeLabel("EXP: 0     COINS: 0", 91, 32, 17)
 
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, -24, 0, 50)
-status.Position = UDim2.fromOffset(12, 152)
-status.BackgroundTransparency = 1
-status.Text = "สถานะ: พร้อมใช้งาน"
-status.TextColor3 = Color3.new(1, 1, 1)
-status.TextSize = 14
-status.TextWrapped = true
-status.Parent = frame
+local farmButton = Instance.new("TextButton")
+farmButton.Name = "FarmToggle"
+farmButton.Position = UDim2.fromOffset(15, 137)
+farmButton.Size = UDim2.new(1, -30, 0, 45)
+farmButton.BackgroundColor3 = green
+farmButton.Text = "FARM: OFF"
+farmButton.TextColor3 = dark
+farmButton.TextSize = 16
+farmButton.Font = Enum.Font.GothamBold
+farmButton.Parent = main
 
-local closeButton = makeButton(
-    "CloseButton", "ปิด UI", 210,
-    Color3.fromRGB(65, 70, 90)
-)
+local farmCorner = Instance.new("UICorner")
+farmCorner.CornerRadius = UDim.new(0, 10)
+farmCorner.Parent = farmButton
 
-farmButton.Activated:Connect(function()
-    farmEnabled = not farmEnabled
+local resetButton = Instance.new("TextButton")
+resetButton.Name = "Reset"
+resetButton.Position = UDim2.fromOffset(15, 194)
+resetButton.Size = UDim2.new(1, -30, 0, 40)
+resetButton.BackgroundColor3 = panelColor
+resetButton.Text = "RESET DEMO"
+resetButton.TextColor3 = cyan
+resetButton.TextSize = 14
+resetButton.Font = Enum.Font.GothamBold
+resetButton.Parent = main
 
-    if farmEnabled then
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 10)
+resetCorner.Parent = resetButton
+
+local footer = makeLabel("Demo only • No real rewards", 250, 22, 10)
+footer.TextColor3 = Color3.fromRGB(130, 165, 190)
+
+local farming = false
+local minimized = false
+local exp = 0
+local coins = 0
+local session = 0
+
+local function updateStats()
+    stats.Text = "EXP: " .. exp .. "     COINS: " .. coins
+end
+
+local function setFarm(enabled)
+    farming = enabled
+    session += 1
+    local mySession = session
+
+    if enabled then
         farmButton.Text = "FARM: ON"
-        farmButton.BackgroundColor3 =
-            Color3.fromRGB(20, 150, 85)
-        status.Text = "สถานะ: เปิด FARM แล้ว"
+        farmButton.BackgroundColor3 = red
+        status.Text = "STATUS: RUNNING DEMO"
+
+        task.spawn(function()
+            while farming and session == mySession do
+                task.wait(1)
+                if farming and session == mySession then
+                    exp += 10
+                    coins += 5
+                    updateStats()
+                end
+            end
+        end)
     else
         farmButton.Text = "FARM: OFF"
-        farmButton.BackgroundColor3 =
-            Color3.fromRGB(150, 45, 55)
-        status.Text = "สถานะ: ปิด FARM แล้ว"
+        farmButton.BackgroundColor3 = green
+        status.Text = "STATUS: OFF"
     end
+end
+
+farmButton.Activated:Connect(function()
+    setFarm(not farming)
 end)
 
-testButton.Activated:Connect(function()
-    status.Text = "ทดสอบสำเร็จ! ปุ่มทำงานแล้ว"
-    print("My First UI: button works")
+resetButton.Activated:Connect(function()
+    setFarm(false)
+    exp = 0
+    coins = 0
+    updateStats()
 end)
 
-minimize.Activated:Connect(function()
+header.Activated:Connect(function()
     minimized = not minimized
+    main.Size = minimized
+        and UDim2.fromOffset(300, 48)
+        or UDim2.fromOffset(300, 300)
 
-    farmButton.Visible = not minimized
-    testButton.Visible = not minimized
     status.Visible = not minimized
-    closeButton.Visible = not minimized
-
-    frame.Size = minimized
-        and UDim2.fromOffset(280, 42)
-        or UDim2.fromOffset(280, 270)
-
-    minimize.Text = minimized and "+" or "-"
-end)
-
-closeButton.Activated:Connect(function()
-    gui:Destroy()
+    stats.Visible = not minimized
+    farmButton.Visible = not minimized
+    resetButton.Visible = not minimized
+    footer.Visible = not minimized
+    header.Text = minimized and "MY FIRST UI     +" or "MY FIRST UI     —"
 end)
 
 -- ลากหน้าต่างด้วยนิ้วหรือเมาส์
 local dragging = false
 local dragStart
-local startPosition
+local startPos
 
-title.InputBegan:Connect(function(input)
+header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch
         or input.UserInputType == Enum.UserInputType.MouseButton1 then
-
         dragging = true
         dragStart = input.Position
-        startPosition = frame.Position
-
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
+        startPos = main.Position
     end
 end)
 
@@ -171,13 +187,20 @@ UserInputService.InputChanged:Connect(function(input)
         or input.UserInputType == Enum.UserInputType.MouseMovement
     ) then
         local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
-            startPosition.X.Scale,
-            startPosition.X.Offset + delta.X,
-            startPosition.Y.Scale,
-            startPosition.Y.Offset + delta.Y
+        main.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
         )
     end
 end)
 
-print("My First UI loaded successfully")
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+print("My First UI FARM demo loaded")
