@@ -332,11 +332,11 @@ end)
 
 local rangeButton = makeButton("ระยะ: 250 studs", 10, function(button)
     if RANGE == 250 then
-        RANGE = 500
+        RANGE = 5000
     elseif RANGE == 500 then
         RANGE = 100
     else
-        RANGE = 250
+        RANGE = 5000
     end
     button.Text = "ระยะ: " .. RANGE .. " studs"
 end)
