@@ -1,0 +1,461 @@
+-- ======================================================================================
+-- PAYOMBØYZ DUMP — Master Universal Roblox Asset Dumper & Decompiler Suite
+-- ======================================================================================
+-- Official Engine: Inlined PayomboyUIz (100% Offline & Universal Multi-Executor)
+-- Target Framework: Universal Roblox Games (PC / Mobile / Tablet / Multi-Executor)
+-- Core Capabilities: Character Physics & Fly, Map & Asset Dumper (Source, Full Save, Decompile),
+-- Workspace Serializer, Real-time RemoteEvent / RemoteFunction Packet Spy & Scanner,
+-- Interactive Dark DEX Explorer, Complete Reactive Bilingual System (ภาษาไทย TH / EN).
+-- Identity: PayomboyZ DUMP (Universal Asset Dumper & Script Reverser)
+-- ======================================================================================
+
+local cloneref = cloneref or function(i) return i end
+local Players = cloneref(game:GetService("Players"))
+local CoreGui = cloneref(game:GetService("CoreGui"))
+local TweenService = cloneref(game:GetService("TweenService"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local RunService = cloneref(game:GetService("RunService"))
+local HttpService = cloneref(game:GetService("HttpService"))
+local TeleportService = cloneref(game:GetService("TeleportService"))
+local VirtualUser = cloneref(game:GetService("VirtualUser"))
+
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+
+-- Anti-Duplication & Lifecycle Management
+if _G.PayomboyZDUMP_Cleanup then
+    pcall(_G.PayomboyZDUMP_Cleanup)
+    task.wait(0.1)
+end
+
+local Cleanups = {}
+_G.PayomboyZDUMP_Cleanup = function()
+    for _, fn in ipairs(Cleanups) do
+        pcall(fn)
+    end
+end
+
+local function bindConn(signal, fn)
+    local c = signal:Connect(fn)
+    table.insert(Cleanups, function() pcall(function() c:Disconnect() end) end)
+    return c
+end
+
+-- File System Directories & Files
+local SERVICE_FOLDER = "PayomboyZDUMP_service"
+local CONFIG_FILE = SERVICE_FOLDER .. "/config.json"
+
+task.spawn(function()
+    pcall(function()
+        if makefolder and not isfolder(SERVICE_FOLDER) then
+            makefolder(SERVICE_FOLDER)
+        end
+    end)
+end)
+
+local Colors = {
+    bg = Color3.fromRGB(18, 19, 24),
+    panel = Color3.fromRGB(24, 25, 32),
+    panel2 = Color3.fromRGB(34, 35, 42),
+    border = Color3.fromRGB(66, 67, 74),
+    text = Color3.fromRGB(245, 245, 250),
+    dim = Color3.fromRGB(165, 166, 175),
+    faint = Color3.fromRGB(105, 105, 120),
+    accent = Color3.fromRGB(220, 38, 58),       -- PayomboyZ Crimson Primary
+    accentD = Color3.fromRGB(170, 24, 42),      -- PayomboyZ Crimson Dark
+    good = Color3.fromRGB(46, 224, 140),        -- Success green
+    warn = Color3.fromRGB(255, 185, 70),        -- Warning amber
+    bad = Color3.fromRGB(255, 60, 60),          -- Danger red
+}
+
+local function getSafeGuiContainer()
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and typeof(h) == "Instance" then return h end
+    end
+    local ok = pcall(function()
+        local t = Instance.new("Folder"); t.Parent = CoreGui; t:Destroy()
+    end)
+    if ok then return CoreGui end
+    return LocalPlayer:WaitForChild("PlayerGui", 10)
+end
+
+local GuiParent = getSafeGuiContainer()
+
+local function safeDestroyGui(name)
+    pcall(function()
+        local parents = { CoreGui, LocalPlayer:FindFirstChild("PlayerGui") }
+        if gethui then pcall(function() table.insert(parents, gethui()) end) end
+        for _, p in ipairs(parents) do
+            if p then
+                for _, c in ipairs(p:GetChildren()) do
+                    if c.Name == name or c.Name:find(name) then pcall(function() c:Destroy() end) end
+                end
+            end
+        end
+    end)
+end
+
+safeDestroyGui("PayomboyZDUMP_GUI")
+safeDestroyGui("PayomboyZDUMP_DEX")
+safeDestroyGui("ValenDEX")
+safeDestroyGui("PayomboyZ_NotifHolder")
+safeDestroyGui("PayomboyZ_HUD")
+
+local function safeClipboard(text)
+    pcall(function()
+        local setCb = setclipboard or toclipboard or set_clipboard or (Clipboard and Clipboard.set)
+        if setCb then
+            setCb(tostring(text))
+        end
+    end)
+end
+
+-- Toast Notification Engine
+local function playClickSound()
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = "rbxassetid://6895079853"
+        s.Volume = 0.3
+        s.Parent = game:GetService("SoundService")
+        s:Play()
+        s.Ended:Connect(function() s:Destroy() end)
+    end)
+end
+
+local notifHolder = nil
+local function getNotifHolder()
+    if notifHolder and notifHolder.Parent then return notifHolder end
+    local notifGui = Instance.new("ScreenGui")
+    notifGui.Name = "PayomboyZ_NotifHolder"
+    notifGui.ResetOnSpawn = false
+    notifGui.DisplayOrder = 9999
+    pcall(function() notifGui.Parent = GuiParent end)
+    table.insert(Cleanups, function() pcall(function() notifGui:Destroy() end) end)
+
+    local holder = Instance.new("Frame")
+    holder.Name = "Holder"
+    holder.Size = UDim2.new(0, 310, 1, -20)
+    holder.Position = UDim2.new(1, -320, 0, 10)
+    holder.BackgroundTransparency = 1
+    holder.Parent = notifGui
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = holder
+
+    notifHolder = holder
+    return holder
+end
+
+local function notify(title, desc, duration, color)
+    duration = duration or 3.5
+    color = color or Colors.accent
+    task.spawn(function()
+        local holder = getNotifHolder()
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, 0, 0, 58)
+        card.BackgroundColor3 = Color3.fromRGB(24, 25, 32)
+        card.BackgroundTransparency = 0.05
+        card.ClipsDescendants = true
+        card.Parent = holder
+
+        local corner = Instance.new("UICorner", card)
+        corner.CornerRadius = UDim.new(0, 8)
+
+        local stroke = Instance.new("UIStroke", card)
+        stroke.Thickness = 1
+        stroke.Color = color
+        stroke.Transparency = 0.3
+
+        local bar = Instance.new("Frame", card)
+        bar.Size = UDim2.new(0, 4, 1, 0)
+        bar.BackgroundColor3 = color
+
+        local tLabel = Instance.new("TextLabel", card)
+        tLabel.Size = UDim2.new(1, -16, 0, 20)
+        tLabel.Position = UDim2.new(0, 12, 0, 8)
+        tLabel.BackgroundTransparency = 1
+        tLabel.Text = tostring(title)
+        tLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        tLabel.TextSize = 13
+        tLabel.FontFace = Font.fromName("Montserrat", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+        tLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local dLabel = Instance.new("TextLabel", card)
+        dLabel.Size = UDim2.new(1, -16, 0, 22)
+        dLabel.Position = UDim2.new(0, 12, 0, 28)
+        dLabel.BackgroundTransparency = 1
+        dLabel.Text = tostring(desc)
+        dLabel.TextColor3 = Color3.fromRGB(180, 182, 190)
+        dLabel.TextSize = 11
+        dLabel.FontFace = Font.fromName("Montserrat", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+        dLabel.TextXAlignment = Enum.TextXAlignment.Left
+        dLabel.TextWrapped = true
+
+        card.Position = UDim2.new(1, 40, 0, 0)
+        TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Position = UDim2.new(0, 0, 0, 0) }):Play()
+
+        task.wait(duration)
+        local outTw = TweenService:Create(card, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = UDim2.new(1, 40, 0, 0), BackgroundTransparency = 1 })
+        outTw:Play()
+        outTw.Completed:Connect(function() card:Destroy() end)
+    end)
+end
+
+-- ====================================================================
+-- BILINGUAL SYSTEM (THAI & ENGLISH FULL ENGINE)
+-- ====================================================================
+local currentLang = "TH"
+
+local TRANSLATIONS = {
+    TH = {
+        -- Main Brand & Header
+        brand_name = "PAYOMBØYZ DUMP",
+        brand_sub = "UNIVERSAL ASSET DUMP & REVERSING SUITE",
+        hub_loaded = "โหลด PayomboyZ DUMP สำเร็จเรียบร้อย!",
+
+        -- Master Tabs
+        tab_player = "ผู้เล่น",
+        tab_dumper = "ดัมพ์ข้อมูล",
+        tab_remote = "ตรวจสอบรีโมท",
+        tab_explorer = "สำรวจแมพ",
+        tab_contact = "ช่องทางติดต่อ",
+        tab_settings = "ตั้งค่า",
+
+        -- Section Headers
+        sec_player = "การตั้งค่าตัวละคร & การเคลื่อนที่",
+        sec_dumper = "ดัมพ์ข้อมูลแมพและ Asset ทั้งหมด",
+        sec_remote = "ดักจับและสแกน Remote แบบเรียลไทม์",
+        sec_explorer = "ตรวจสอบโครงสร้างเกมและวัตถุ (Dark DEX)",
+        sec_contact = "ช่องทางติดต่อและคอมมูนิตี้ทางการ",
+        sec_settings = "การตั้งค่าระบบและปรับแต่งการใช้งาน",
+
+        -- Tab 1: Player Cards & Drawer Controls
+        fly_title = "บิน (Fly Mode)",
+        fly_desc = "บินได้อย่างอิสระในโลก 3 มิติ กด Space บินขึ้น / Shift บินลง",
+        fly_speed = "ความเร็วการบิน",
+        fly_speed_suffix = " หน่วย/วิ",
+        
+        noclip_title = "เดินทะลุกำแพง (Noclip)",
+        noclip_desc = "เดินทะลุสิ่งกีดขวาง กำแพง และชิ้นส่วนที่ชนได้ทั้งหมด",
+        
+        speed_title = "เพิ่มความเร็วเดิน (WalkSpeed)",
+        speed_desc = "ปรับแต่งความเร็วการวิ่งและการเคลื่อนที่ของตัวละคร",
+        speed_slider = "ความเร็วการเดิน",
+        speed_suffix = " หน่วย/วิ",
+        
+        jump_title = "เพิ่มพลังการกระโดด (JumpPower)",
+        jump_desc = "ปรับแต่งความสูงและแรงส่งในการกระโดดของตัวละคร",
+        jump_slider = "พลังกระโดด",
+        jump_suffix = " หน่วย",
+        
+        antiafk_title = "ป้องกันการตัดการเชื่อมต่อ (Anti-AFK)",
+        antiafk_desc = "ป้องกันไม่ให้เซิร์ฟเวอร์เตะคุณออกจากการไม่ขยับ (20 นาที)",
+        
+        misc_title = "ตัวเลือกตัวละคร & สปอว์น",
+        misc_desc = "เปลี่ยน Rig, กำหนดจุดเกิด, สั่งรีเซ็ตตัวละคร และรีจอยน์เซิร์ฟเวอร์",
+        rig_type = "รูปแบบโมเดลตัวละคร (Rig)",
+        spawn_loc = "จุดเกิดตัวละคร",
+
+        btn_reset_title = "รีเซ็ตตัวละคร",
+        btn_reset_desc = "ตายทันทีเพื่อเกิดใหม่ที่จุดสปอว์นอย่างปลอดภัย",
+        btn_reset_tag = "💀 รีเซ็ต",
+
+        btn_rejoin_title = "รีจอยน์เซิร์ฟเวอร์",
+        btn_rejoin_desc = "เชื่อมต่อกลับเข้าเซิร์ฟเวอร์เดิมแบบทันที",
+        btn_rejoin_tag = "🔁 รีจอยน์",
+
+        -- Tab 2: Dumper Cards & Drawer Controls
+        dump_mode_title = "ตั้งค่ารูปแบบการดัมพ์",
+        dump_mode_desc = "เลือกประเภทไฟล์: ซอร์สโค้ด (.lua), บันทึกทั้งหมด (.rbxl), หรือดีคอมไพล์",
+        dump_mode_dropdown = "โหมดการดัมพ์",
+        filename_label = "ชื่อไฟล์ผลลัพธ์",
+        dump_remotes_toggle = "ดัมพ์รวม Remote ด้วย",
+        
+        services_title = "เลือก Service ที่ต้องการดัมพ์",
+        services_desc = "คลิกเพื่อเลือก Service ในเกมที่ต้องการดัมพ์ข้อมูล (10 Services)",
+        btn_select_all = "✅ เลือกทั้งหมด",
+        btn_clear_all = "❌ ยกเลิกทั้งหมด",
+        
+        btn_start_dump_title = "เริ่มดัมพ์ Service ที่เลือก",
+        btn_start_dump_desc = "ดึงข้อมูลโครงสร้าง Service ที่เลือกแล้วบันทึกลงโฟลเดอร์ทันที",
+        btn_start_dump_tag = "⚡ ดัมพ์ Service",
+
+        btn_dump_all_title = "ดัมพ์ทั้งเซิร์ฟเวอร์ (.rbxl)",
+        btn_dump_all_desc = "บันทึกข้อมูลทุก Service ของเกมเป็นไฟล์ .rbxl (SaveInstance)",
+        btn_dump_all_tag = "📦 เซฟทั้งหมด",
+        
+        map_export_title = "ตั้งค่าการส่งออกแมพ",
+        map_export_desc = "เลือกฟอร์แมตสำหรับการบันทึกโมเดลและพาร์ทใน Workspace",
+        export_format_dropdown = "รูปแบบไฟล์แมพ",
+
+        btn_dump_map_title = "ดัมพ์แมพ Workspace ทันที",
+        btn_dump_map_desc = "สร้างโค้ดประกอบแมพหรือบันทึกเป็น .rbxl ตามการตั้งค่า",
+        btn_dump_map_tag = "🗺️ ดัมพ์แมพ",
+
+        -- Tab 3: Remote Cards & Drawer Controls
+        spy_title = "ดักจับรีโมท (Remote Spy)",
+        spy_desc = "เปิด/ปิด การดักจับ FireServer และ InvokeServer แบบเรียลไทม์",
+        spy_recorded_prefix = "รีโมทที่บันทึกได้: ",
+        spy_recorded_suffix = " รายการ",
+        spy_filename_textbox = "ชื่อไฟล์ Spy",
+
+        btn_spy_copy_title = "คัดลอกโค้ดรีโมท",
+        btn_spy_copy_desc = "คัดลอกโค้ด Lua ที่ดักจับได้ทั้งหมดเข้าคลิปบอร์ด",
+        btn_spy_copy_tag = "📋 คัดลอกโค้ด",
+
+        btn_spy_save_title = "บันทึกไฟล์สปาย",
+        btn_spy_save_desc = "บันทึกโค้ดรีโมทที่ดักจับได้ลงในโฟลเดอร์สคริปต์",
+        btn_spy_save_tag = "💾 บันทึกไฟล์",
+
+        btn_spy_clear_title = "ล้างประวัติการดักจับ",
+        btn_spy_clear_desc = "ล้างข้อมูลรีโมททั้งหมดที่ถูกบันทึกไว้ในหน่วยความจำ",
+        btn_spy_clear_tag = "🗑️ ล้างข้อมูล",
+        
+        btn_scan_all_title = "สแกนรีโมททั้งเกม",
+        btn_scan_all_desc = "ค้นหา RemoteEvent และ RemoteFunction ทุกตัวในเกมทันที",
+        btn_scan_all_tag = "🔍 สแกนทั้งเกม",
+
+        btn_scan_copy_title = "คัดลอกพาร์ทรีโมท",
+        btn_scan_copy_desc = "คัดลอกตำแหน่ง Path ของรีโมททั้งหมดที่สแกนเจอ",
+        btn_scan_copy_tag = "📋 คัดลอกพาร์ท",
+
+        btn_scan_save_title = "บันทึกไฟล์สแกน",
+        btn_scan_save_desc = "บันทึกรายชื่อรีโมทที่พบทั้งหมดเป็นไฟล์โค้ด",
+        btn_scan_save_tag = "💾 บันทึกสแกน",
+        
+        btn_show_stats_title = "สถิติจำนวนรีโมท",
+        btn_show_stats_desc = "แสดงจำนวนรายการที่ดักจับได้และรายการที่สแกนเจอ",
+        btn_show_stats_tag = "📊 สถิติ",
+
+        output_title = "จัดการข้อมูลและคัดลอกลิสต์",
+        output_desc = "ตัวเลือกเพิ่มเติมสำหรับการคัดลอกลิสต์ข้อความแบบละเอียด",
+        scan_filename_textbox = "ชื่อไฟล์สแกนรีโมท",
+        btn_copy_spylist = "📋 คัดลอกลิสต์รีโมทที่ดักจับ",
+        btn_copy_scanlist = "📋 คัดลอกลิสต์รีโมทที่สแกน",
+
+        -- Tab 4: Explorer Cards & Drawer Controls
+        dex_title = "หน้าต่าง Dark DEX",
+        dex_desc = "เปิด/ปิด หน้าต่าง DEX ตรวจสอบ Object Hierarchy และคุณสมบัติต่างๆ",
+        
+        btn_refresh_dex_title = "รีเฟรชโครงสร้าง DEX",
+        btn_refresh_dex_desc = "อัปเดตและดึงโครงสร้างต้นไม้ของวัตถุทั้งหมดใหม่",
+        btn_refresh_dex_tag = "🔄 รีเฟรช DEX",
+
+        btn_close_dex_title = "ปิดหน้าต่าง DEX",
+        btn_close_dex_desc = "ซ่อนและปิดการทำงานของหน้าต่าง Dark DEX ทันที",
+        btn_close_dex_tag = "❌ ปิด DEX",
+
+        dex_guide_title = "คู่มือการใช้งาน Dark DEX",
+        dex_guide_desc = "เทคนิคและฟังก์ชันลัดสำหรับสำรวจเกมอย่างมืออาชีพ",
+        dex_help_1 = "💡 ค้นหา Object ในช่องค้นหาด้านบนของหน้าต่าง DEX ได้ทันที",
+        dex_help_2 = "💡 คลิก 'Click Pick' เพื่อเลือกวัตถุ 3 มิติโดยตรงจากหน้าจอเกม",
+        dex_help_3 = "💡 ตรวจสอบคุณสมบัติ, คัดลอก Path, วาร์ปไปหา หรือลบ Object ได้ทันที",
+
+        -- Tab 5: Contact Cards & Drawer Controls
+        btn_copy_discord_title = "คอมมูนิตี้ Discord",
+        btn_copy_discord_desc = "เข้าร่วมดิสคอร์ดทางการของ PayomboyZ รับสคริปต์ใหม่ก่อนใคร",
+        btn_copy_yt_title = "ช่อง YouTube ทางการ",
+        btn_copy_yt_desc = "ติดตามผลงาน คลิปสาธิต และการพัฒนาสคริปต์ใหม่ๆ บน YouTube",
+        btn_copy_site_title = "เว็บไซต์ PayomboyZ",
+        btn_copy_site_desc = "เข้าชมหน้าเว็บทางการ สั่งซื้อบริการ และดาวน์โหลดซอร์ส",
+        credits_title = "เครดิตผู้พัฒนา & ข้อมูลระบบ",
+        credits_desc = "ข้อมูลเวอร์ชัน สถาปัตยกรรม UI และผู้พัฒนา PayomboyZ DUMP",
+        credits_ver = "เวอร์ชัน: PayomboyZ DUMP v2.5 (Obsidian Glassmorphic)",
+        credits_author = "ผู้พัฒนา: PayomboyZ Studio & Community",
+        credits_engine = "เอนจิน UI: Inlined Offline PayomboyUIz v2.0",
+
+        -- Tab 6: Settings Cards & Drawer Controls
+        lang_card_title = "สลับภาษา (Switch Language)",
+        lang_card_desc = "สลับระหว่างภาษาไทย (TH) และ English (EN) แบบเรียลไทม์",
+        
+        btn_save_config_title = "บันทึกการตั้งค่า",
+        btn_save_config_desc = "เซฟค่าตัวเลือกทั้งหมดลงในไฟล์คอนฟิกบนเครื่อง",
+        btn_save_config_tag = "💾 บันทึก",
+
+        btn_load_config_title = "โหลดการตั้งค่า",
+        btn_load_config_desc = "โหลดการตั้งค่าที่บันทึกไว้กลับมาใช้งานทันที",
+        btn_load_config_tag = "📂 โหลด",
+
+        btn_reset_config_title = "รีเซ็ตการตั้งค่า",
+        btn_reset_config_desc = "คืนค่าการตั้งค่าทั้งหมดกลับเป็นค่าเริ่มต้นจากโรงงาน",
+        btn_reset_config_tag = "⚠️ รีเซ็ต",
+
+        btn_unload_ui_title = "ปิดสคริปต์อย่างปลอดภัย",
+        btn_unload_ui_desc = "ยกเลิก Event ทั้งหมด ลบ UI ออกจากหน้าจออย่างหมดจด",
+        btn_unload_ui_tag = "🚪 ถอนสคริปต์",
+
+        ui_info_title = "ปุ่มลัดและคีย์บอร์ดชอร์ตคัต",
+        ui_info_desc = "คำแนะนำการซ่อน/แสดงเมนูด้วยปุ่มลัดบนคีย์บอร์ด",
+        hotkey_desc_1 = "⌨️ กดปุ่ม Right Control หรือปุ่ม Insert เพื่อซ่อน/แสดงเมนู",
+        hotkey_desc_2 = "📱 บนมือถือ สามารถแตะที่เมนูลอย Capsule HUD ด้านข้างเพื่อเปิด/ปิด",
+
+        -- Notifications & Statuses
+        notif_rig_changed = "เปลี่ยนรูปแบบเป็น %s เรียบร้อย (รีเซ็ตตัวละครเพื่อแสดงผล)",
+        notif_rejoining = "กำลังเชื่อมต่อกลับเข้าเซิร์ฟเวอร์...",
+        notif_char_reset = "รีเซ็ตตัวละครเรียบร้อยแล้ว",
+        notif_dump_starting = "กำลังเริ่มดัมพ์ข้อมูล...",
+        notif_dump_success = "ดัมพ์ข้อมูลและบันทึกไฟล์เรียบร้อยแล้ว!",
+        notif_dump_failed = "การดัมพ์ล้มเหลว: %s",
+        notif_select_service = "กรุณาเลือกอย่างน้อยหนึ่ง Service!",
+        notif_dump_all_starting = "กำลังดัมพ์ทุก Service ในเกม...",
+        notif_dump_all_success = "ดัมพ์ทุก Service สำเร็จเรียบร้อย!",
+        notif_dump_map_txt = "กำลังดัมพ์แมพเป็นไฟล์ .txt...",
+        notif_dump_map_saved = "บันทึกไฟล์ DumpedMap.txt สำเร็จ!",
+        notif_dump_map_rbxl = "กำลังบันทึก .rbxl... กรุณารอสักครู่",
+        notif_saveinstance_unsupported = "Executor ของคุณไม่รองรับคำสั่ง saveinstance()",
+        notif_saveinstance_success = "บันทึกสำเร็จ! ไฟล์: Place_%s.rbxl ในโฟลเดอร์ workspace/",
+        notif_spy_started = "เริ่มบันทึกการทำงานของ Remote แบบเรียลไทม์!",
+        notif_spy_stopped = "หยุดบันทึกแล้ว รายการทั้งหมด: %d",
+        notif_spy_cleared = "ล้างข้อมูลประวัติรีโมทเรียบร้อย",
+        notif_spy_saved = "บันทึกไฟล์สำเร็จ: %s",
+        notif_spy_copied = "คัดลอกโค้ดรีโมท %d รายการเข้าคลิปบอร์ดแล้ว",
+        notif_scan_first = "กรุณากดสแกนก่อน!",
+        notif_scan_found = "พบรีโมททั้งหมด %d รายการในเกม",
+        notif_scan_copied = "คัดลอกเส้นทางรีโมท %d รายการเข้าคลิปบอร์ดแล้ว",
+        notif_scan_saved = "บันทึกผลการสแกนสำเร็จ: %s",
+        notif_no_spy_data = "ไม่มีข้อมูลรีโมทที่บันทึกไว้",
+        notif_no_scan_data = "ไม่มีข้อมูลจากการสแกน",
+        notif_stats = "บันทึกได้: %d | สแกนเจอ: %d",
+        notif_copied_list = "คัดลอกลิสต์เข้าคลิปบอร์ดเรียบร้อย",
+        notif_dex_opened = "เปิดหน้าต่าง Dark DEX เรียบร้อย",
+        notif_dex_closed = "ปิดหน้าต่าง Dark DEX เรียบร้อย",
+        notif_dex_refreshed = "รีเฟรชโครงสร้างต้นไม้วัตถุสำเร็จ",
+        notif_discord_copied = "คัดลอกลิงก์ Discord เข้าคลิปบอร์ดแล้ว!",
+        notif_yt_copied = "คัดลอกลิงก์ YouTube เข้าคลิปบอร์ดแล้ว!",
+        notif_site_copied = "คัดลอกลิงก์เว็บไซต์เข้าคลิปบอร์ดแล้ว!",
+        notif_lang_switched = "เปลี่ยนภาษาเป็นภาษาไทยเรียบร้อย!",
+        notif_config_saved = "บันทึกการตั้งค่าลงไฟล์เรียบร้อย!",
+        notif_config_loaded = "โหลดการตั้งค่าสำเร็จเรียบร้อย!",
+        notif_config_reset = "คืนค่าเริ่มต้นเรียบร้อยแล้ว!",
+        notif_unloaded = "ถอนการติดตั้งสคริปต์เรียบร้อย",
+    },
+
+    EN = {
+        -- Main Brand & Header
+        brand_name = "PAYOMBØYZ DUMP",
+        brand_sub = "UNIVERSAL ASSET DUMP & REVERSING SUITE",
+        hub_loaded = "PayomboyZ DUMP loaded successfully!",
+
+        -- Master Tabs
+        tab_player = "Player",
+        tab_dumper = "Dumper",
+        tab_remote = "Remote Spy",
+        tab_explorer = "Explorer",
+        tab_contact = "Contact",
+        tab_settings = "Settings",
+
+        -- Section Headers
+        sec_player = "Character Physics & Movement",
+        sec_dumper = "Map & Asset Reconstruction Engine",
+        sec_remote = "Real-time Remote Packet Logger & Scanner",
+        sec_explorer = "Game Hierarchy & Object Inspector (Dark DEX)",
+        sec_contact = "Official Socials & Community Channels",
+        sec_settings = "System Configuration & Preferences",
+
+        -- Tab 1: Player Cards & Drawer Controls
+   
