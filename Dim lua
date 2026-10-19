@@ -1,41 +1,87 @@
+
 --==================================================
--- ProFirst | ANIME NEON BLUE
--- LocalScript สำหรับเกมที่คุณสร้างเอง
--- ตำแหน่ง: StarterPlayer > StarterPlayerScripts
+-- ProFirst | FLUENT NEON BLUE
+-- ตัวเต็ม: UI + ESP + Settings + STOP ALL
 --==================================================
 
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+if not LocalPlayer then
+    warn("[ProFirst] ไม่พบ LocalPlayer")
+    return
+end
+
+--==================================================
+-- 1. LOAD LIBRARIES + ERROR HANDLING
+--==================================================
+
+local function loadLibrary(name, url)
+    local ok, result = pcall(function()
+        local response = game:HttpGet(url)
+
+        assert(
+            type(response) == "string" and #response > 0,
+            "ดาวน์โหลดไฟล์ไม่สำเร็จหรือไฟล์ว่าง"
+        )
+
+        local compile, compileError = loadstring(response)
+
+        assert(compile, compileError or "loadstring ใช้งานไม่ได้")
+
+        return compile()
+    end)
+
+    if not ok then
+        warn("[ProFirst] โหลด " .. name .. " ไม่สำเร็จ: " .. tostring(result))
+        return nil
+    end
+
+    if result == nil then
+        warn("[ProFirst] " .. name .. " ไม่ส่งค่ากลับ")
+        return nil
+    end
+
+    return result
+end
+
+local Fluent = loadLibrary(
+    "Fluent",
+    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
+)
+
+if not Fluent then
+    warn("[ProFirst] หยุดทำงาน เพราะโหลด Fluent ไม่สำเร็จ")
+    return
+end
+
+local SaveManager = loadLibrary(
+    "SaveManager",
+    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"
+)
+
+local InterfaceManager = loadLibrary(
+    "InterfaceManager",
+    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"
+)
+
+if not SaveManager or not InterfaceManager then
+    warn("[ProFirst] โหลด Addons ไม่ครบ จึงหยุดเพื่อป้องกัน Error")
+    return
+end
+
+--==================================================
+-- 2. STATE
+--==================================================
 
 local BLUE = Color3.fromRGB(0, 170, 255)
-local DARK = Color3.fromRGB(6, 12, 30)
-local PANEL = Color3.fromRGB(13, 26, 52)
 local WHITE = Color3.fromRGB(240, 248, 255)
-local GREY = Color3.fromRGB(100, 120, 150)
-local RED = Color3.fromRGB(220, 55, 75)
 
--- ล้าง GUI เก่า
-local old = playerGui:FindFirstChild("ProFirstUI")
-if old then old:Destroy() end
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "ProFirstUI"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 100
-gui.Parent = playerGui
-
-local connections = {}
-local highlights = {}
-local espEnabled = false
 local running = true
-local minimized = false
-local dragging = false
-local dragStart
-local startPos
-local dragInput
+local espEnabled = false
+local highlights = {}
+local connections = {}
+local Window
 
 local function connect(signal, callback)
     local connection = signal:Connect(callback)
@@ -43,211 +89,65 @@ local function connect(signal, callback)
     return connection
 end
 
-local function corner(object, radius)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, radius)
-    c.Parent = object
-end
+--==================================================
+-- 3. HIGHLIGHT FUNCTIONS
+--==================================================
 
-local function stroke(object, color, thickness)
-    local s = Instance.new("UIStroke")
-    s.Color = color
-    s.Thickness = thickness
-    s.Parent = object
-end
-
-local function button(parent, name, text, size, pos)
-    local b = Instance.new("TextButton")
-    b.Name = name
-    b.Size = size
-    b.Position = pos
-    b.BackgroundColor3 = PANEL
-    b.Text = text
-    b.TextColor3 = WHITE
-    b.TextSize = 15
-    b.Font = Enum.Font.GothamBold
-    b.BorderSizePixel = 0
-    b.AutoButtonColor = true
-    b.Parent = parent
-    corner(b, 9)
-    return b
-end
-
--- หน้าต่างหลัก
-local main = Instance.new("Frame")
-main.Name = "Main"
-main.Size = UDim2.fromOffset(330, 330)
-main.Position = UDim2.new(0.5, -165, 0.5, -165)
-main.BackgroundColor3 = DARK
-main.BorderSizePixel = 0
-main.ClipsDescendants = true
-main.Parent = gui
-corner(main, 14)
-stroke(main, BLUE, 2)
-
--- หัวหน้าต่าง
-local header = Instance.new("Frame")
-header.Name = "Header"
-header.Size = UDim2.new(1, 0, 0, 54)
-header.BackgroundColor3 = PANEL
-header.BorderSizePixel = 0
-header.Parent = main
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -100, 1, 0)
-title.Position = UDim2.fromOffset(13, 0)
-title.BackgroundTransparency = 1
-title.Text = "⚡ ProFirst"
-title.TextColor3 = BLUE
-title.TextSize = 23
-title.Font = Enum.Font.GothamBold
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = header
-
-local minButton = button(
-    header, "Minimize", "—",
-    UDim2.fromOffset(34, 32),
-    UDim2.new(1, -77, 0, 11)
-)
-
-local hideButton = button(
-    header, "Hide", "×",
-    UDim2.fromOffset(34, 32),
-    UDim2.new(1, -39, 0, 11)
-)
-
--- เนื้อหา
-local body = Instance.new("Frame")
-body.Name = "Body"
-body.Position = UDim2.fromOffset(12, 65)
-body.Size = UDim2.new(1, -24, 1, -105)
-body.BackgroundTransparency = 1
-body.Parent = main
-
-local heading = Instance.new("TextLabel")
-heading.Size = UDim2.new(1, 0, 0, 28)
-heading.BackgroundTransparency = 1
-heading.Text = "PLAYER ESP / NEON BLUE"
-heading.TextColor3 = WHITE
-heading.TextSize = 15
-heading.Font = Enum.Font.GothamBold
-heading.TextXAlignment = Enum.TextXAlignment.Left
-heading.Parent = body
-
-local description = Instance.new("TextLabel")
-description.Position = UDim2.fromOffset(0, 29)
-description.Size = UDim2.new(1, 0, 0, 30)
-description.BackgroundTransparency = 1
-description.Text = "Highlight สำหรับเกมของคุณเอง"
-description.TextColor3 = GREY
-description.TextSize = 12
-description.Font = Enum.Font.Gotham
-description.TextXAlignment = Enum.TextXAlignment.Left
-description.Parent = body
-
-local espRow = Instance.new("Frame")
-espRow.Position = UDim2.fromOffset(0, 68)
-espRow.Size = UDim2.new(1, 0, 0, 62)
-espRow.BackgroundColor3 = PANEL
-espRow.BorderSizePixel = 0
-espRow.Parent = body
-corner(espRow, 10)
-stroke(espRow, Color3.fromRGB(25, 65, 110), 1)
-
-local espLabel = Instance.new("TextLabel")
-espLabel.Position = UDim2.fromOffset(12, 5)
-espLabel.Size = UDim2.new(1, -90, 0, 26)
-espLabel.BackgroundTransparency = 1
-espLabel.Text = "Player Highlight"
-espLabel.TextColor3 = WHITE
-espLabel.TextSize = 15
-espLabel.Font = Enum.Font.GothamBold
-espLabel.TextXAlignment = Enum.TextXAlignment.Left
-espLabel.Parent = espRow
-
-local espInfo = Instance.new("TextLabel")
-espInfo.Position = UDim2.fromOffset(12, 31)
-espInfo.Size = UDim2.new(1, -90, 0, 20)
-espInfo.BackgroundTransparency = 1
-espInfo.Text = "สถานะ: ปิด"
-espInfo.TextColor3 = GREY
-espInfo.TextSize = 12
-espInfo.Font = Enum.Font.Gotham
-espInfo.TextXAlignment = Enum.TextXAlignment.Left
-espInfo.Parent = espRow
-
-local toggle = button(
-    espRow, "ESPToggle", "OFF",
-    UDim2.fromOffset(62, 34),
-    UDim2.new(1, -72, 0.5, -17)
-)
-toggle.TextSize = 13
-
--- ปุ่มหยุดระบบทั้งหมด
-local stopButton = button(
-    body, "StopAll", "STOP ALL",
-    UDim2.new(1, 0, 0, 38),
-    UDim2.fromOffset(0, 143)
-)
-stopButton.BackgroundColor3 = RED
-
-local status = Instance.new("TextLabel")
-status.Name = "Status"
-status.Position = UDim2.new(0, 12, 1, -30)
-status.Size = UDim2.new(1, -24, 0, 20)
-status.BackgroundTransparency = 1
-status.Text = "● ProFirst พร้อมใช้งาน"
-status.TextColor3 = BLUE
-status.TextSize = 12
-status.Font = Enum.Font.GothamBold
-status.TextXAlignment = Enum.TextXAlignment.Left
-status.Parent = main
-
--- ปุ่มเรียก GUI กลับ
-local reopen = button(
-    gui, "Reopen", "⚡ ProFirst",
-    UDim2.fromOffset(130, 42),
-    UDim2.new(0, 15, 0.5, -21)
-)
-reopen.Visible = false
-reopen.TextColor3 = BLUE
-stroke(reopen, BLUE, 1)
-
--- ระบบ Highlight
 local function removeHighlight(target)
-    local h = highlights[target]
-    if h then
-        h:Destroy()
+    local highlight = highlights[target]
+
+    if highlight then
+        pcall(function()
+            highlight:Destroy()
+        end)
+
         highlights[target] = nil
     end
 end
 
 local function addHighlight(target)
-    if not running or not espEnabled or target == player then
+    if not running or not espEnabled then
+        return
+    end
+
+    if target == LocalPlayer then
         return
     end
 
     local character = target.Character
-    if not character then return end
+    if not character then
+        return
+    end
 
     removeHighlight(target)
 
-    local h = Instance.new("Highlight")
-    h.Name = "ProFirstPlayerHighlight"
-    h.Adornee = character
-    h.FillColor = BLUE
-    h.OutlineColor = WHITE
-    h.FillTransparency = 0.7
-    h.OutlineTransparency = 0
-    h.DepthMode = Enum.HighlightDepthMode.Occluded
-    h.Parent = character
+    local ok, highlight = pcall(function()
+        local h = Instance.new("Highlight")
+        h.Name = "ProFirstPlayerHighlight"
+        h.Adornee = character
+        h.FillColor = BLUE
+        h.OutlineColor = WHITE
+        h.FillTransparency = 0.7
+        h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.Occluded
+        h.Parent = character
+        return h
+    end)
 
-    highlights[target] = h
+    if ok and highlight then
+        highlights[target] = highlight
+    else
+        warn("[ProFirst] สร้าง Highlight ไม่สำเร็จ:", highlight)
+    end
 end
 
 local function refreshESP()
+    if not running then
+        return
+    end
+
     for _, target in ipairs(Players:GetPlayers()) do
-        if target ~= player then
+        if target ~= LocalPlayer then
             if espEnabled then
                 addHighlight(target)
             else
@@ -257,14 +157,25 @@ local function refreshESP()
     end
 end
 
+--==================================================
+-- 4. PLAYER EVENTS
+--==================================================
+
 local function watchPlayer(target)
-    if target == player then return end
+    if target == LocalPlayer then
+        return
+    end
 
     connect(target.CharacterAdded, function()
         task.wait(0.5)
+
         if running and espEnabled then
             addHighlight(target)
         end
+    end)
+
+    connect(target.CharacterRemoving, function()
+        removeHighlight(target)
     end)
 
     if espEnabled then
@@ -282,104 +193,222 @@ connect(Players.PlayerRemoving, function(target)
     removeHighlight(target)
 end)
 
--- ปุ่มเปิด/ปิด Highlight
-connect(toggle.Activated, function()
-    if not running then return end
+--==================================================
+-- 5. CREATE FLUENT WINDOW
+--==================================================
 
-    espEnabled = not espEnabled
-    refreshESP()
-
-    toggle.Text = espEnabled and "ON" or "OFF"
-    toggle.BackgroundColor3 = espEnabled and BLUE or PANEL
-    espInfo.Text = espEnabled and "สถานะ: เปิด" or "สถานะ: ปิด"
-    espInfo.TextColor3 = espEnabled and BLUE or GREY
-    status.Text = espEnabled and "● ESP เปิดใช้งาน" or "● ESP ปิดใช้งาน"
+local ok, windowResult = pcall(function()
+    return Fluent:CreateWindow({
+        Title = "ProFirst",
+        SubTitle = "ANIME NEON BLUE",
+        TabWidth = 160,
+        Size = UDim2.fromOffset(540, 420),
+        Acrylic = false,
+        Theme = "Dark",
+        MinimizeKey = Enum.KeyCode.LeftControl
+    })
 end)
 
--- ย่อและขยายหน้าต่าง
-local fullSize = main.Size
-
-connect(minButton.Activated, function()
-    minimized = not minimized
-    body.Visible = not minimized
-    status.Visible = not minimized
-
-    main.Size = minimized
-        and UDim2.fromOffset(330, 54)
-        or fullSize
-
-    minButton.Text = minimized and "+" or "—"
-end)
-
--- ซ่อนและเรียกกลับ
-connect(hideButton.Activated, function()
-    main.Visible = false
-    reopen.Visible = true
-end)
-
-connect(reopen.Activated, function()
-    main.Visible = true
-    reopen.Visible = false
-end)
-
--- ลากหน้าต่างด้วยนิ้วหรือเมาส์
-connect(header.InputBegan, function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseButton1 then
-
-        dragging = true
-        dragStart = input.Position
-        startPos = main.Position
-
-        connect(input.Changed, function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-connect(header.InputChanged, function(input)
-    if input.UserInputType == Enum.UserInputType.Touch
-        or input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
-
-connect(UIS.InputChanged, function(input)
-    if running and dragging and input == dragInput then
-        local delta = input.Position - dragStart
-
-        main.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--- หยุดระบบและล้างการเชื่อมต่อ
-connect(stopButton.Activated, function()
-    if not running then return end
-
-    running = false
-    espEnabled = false
-
-    for target in pairs(highlights) do
-        removeHighlight(target)
-    end
+if not ok or not windowResult then
+    warn("[ProFirst] สร้างหน้าต่าง Fluent ไม่สำเร็จ:", windowResult)
 
     for _, connection in ipairs(connections) do
-        if connection.Connected then
-            connection:Disconnect()
-        end
+        connection:Disconnect()
     end
 
-    table.clear(connections)
+    return
+end
 
-    gui:Destroy()
+Window = windowResult
+
+local Tabs = {
+    Main = Window:AddTab({
+        Title = "Main",
+        Icon = "zap"
+    }),
+
+    Settings = Window:AddTab({
+        Title = "Settings",
+        Icon = "settings"
+    })
+}
+
+--==================================================
+-- 6. MAIN TAB
+--==================================================
+
+Tabs.Main:AddParagraph({
+    Title = "⚡ ProFirst",
+    Content = "ANIME NEON BLUE | Player Highlight"
+})
+
+Tabs.Main:AddParagraph({
+    Title = "คำแนะนำ",
+    Content = "เปิด Player Highlight เพื่อแสดงเส้นขอบตัวละครผู้เล่นอื่น"
+})
+
+-- ESP Toggle
+local ESPSwitch = Tabs.Main:AddToggle("ProFirstESP", {
+    Title = "Player Highlight",
+    Description = "เปิดหรือปิด Highlight",
+    Default = false
+})
+
+ESPSwitch:OnChanged(function(value)
+    if not running then
+        return
+    end
+
+    espEnabled = value
+    refreshESP()
+
+    Fluent:Notify({
+        Title = "ProFirst",
+        Content = value and "ESP เปิดแล้ว" or "ESP ปิดแล้ว",
+        Duration = 3
+    })
 end)
 
-print("ProFirst loaded successfully")
+-- Refresh
+Tabs.Main:AddButton({
+    Title = "Refresh Highlight",
+    Description = "อัปเดต Highlight ผู้เล่นปัจจุบัน",
+    Callback = function()
+        if not running then
+            return
+        end
 
+        refreshESP()
+
+        Fluent:Notify({
+            Title = "ProFirst",
+            Content = "อัปเดตเรียบร้อย",
+            Duration = 3
+        })
+    end
+})
+
+-- Clear
+Tabs.Main:AddButton({
+    Title = "Clear Highlight",
+    Description = "ปิด ESP และลบ Highlight ทั้งหมด",
+    Callback = function()
+        if not running then
+            return
+        end
+
+        espEnabled = false
+        ESPSwitch:SetValue(false)
+        refreshESP()
+
+        Fluent:Notify({
+            Title = "ProFirst",
+            Content = "ล้าง Highlight แล้ว",
+            Duration = 3
+        })
+    end
+})
+
+-- Minimize
+Tabs.Main:AddButton({
+    Title = "Minimize Window",
+    Description = "ย่อหน้าต่าง Fluent",
+    Callback = function()
+        if not running then
+            return
+        end
+
+        local minimizeOK, minimizeError = pcall(function()
+            Window:Minimize()
+        end)
+
+        if not minimizeOK then
+            warn("[ProFirst] Fluent รุ่นนี้ไม่รองรับ Minimize:", minimizeError)
+
+            Fluent:Notify({
+                Title = "ProFirst",
+                Content = "รุ่น Fluent นี้ไม่รองรับคำสั่งย่อหน้าต่าง",
+                Duration = 4
+            })
+        end
+    end
+})
+
+--==================================================
+-- 7. STOP ALL
+--==================================================
+
+Tabs.Main:AddButton({
+    Title = "STOP ALL",
+    Description = "ปิด ESP ล้าง Highlight และหยุดระบบ",
+    Callback = function()
+        if not running then
+            return
+        end
+
+        running = false
+        espEnabled = false
+
+        for target in pairs(highlights) do
+            removeHighlight(target)
+        end
+
+        for _, connection in ipairs(connections) do
+            if connection.Connected then
+                connection:Disconnect()
+            end
+        end
+
+        table.clear(connections)
+
+        pcall(function()
+            Fluent:Notify({
+                Title = "ProFirst",
+                Content = "หยุดระบบแล้ว",
+                Duration = 2
+            })
+        end)
+
+        task.delay(0.3, function()
+            pcall(function()
+                Fluent:Unload()
+            end)
+        end)
+    end
+})
+
+--==================================================
+-- 8. SETTINGS + CONFIGURATION
+--==================================================
+
+local setupOK, setupError = pcall(function()
+    SaveManager:SetLibrary(Fluent)
+    InterfaceManager:SetLibrary(Fluent)
+
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes({})
+
+    InterfaceManager:SetFolder("ProFirst")
+    SaveManager:SetFolder("ProFirst/Configurations")
+
+    InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+    SaveManager:BuildConfigSection(Tabs.Settings)
+end)
+
+if not setupOK then
+    warn("[ProFirst] ตั้งค่า Addons ไม่สำเร็จ:", setupError)
+end
+
+--==================================================
+-- 9. START
+--==================================================
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "ProFirst",
+    Content = "โหลด UI สำเร็จ",
+    Duration = 5
+})
+
+print("[ProFirst] Fluent Neon Blue loaded")
