@@ -1,7 +1,7 @@
 --==================================================
 -- ProFirst | ANIME NEON BLUE
--- ESP สำหรับเกม Roblox ที่คุณสร้างเอง
--- ตำแหน่งแนะนำ: StarterPlayerScripts > LocalScript
+-- LocalScript สำหรับเกมที่คุณสร้างเอง
+-- ตำแหน่ง: StarterPlayer > StarterPlayerScripts
 --==================================================
 
 local Players = game:GetService("Players")
@@ -15,7 +15,9 @@ local DARK = Color3.fromRGB(6, 12, 30)
 local PANEL = Color3.fromRGB(13, 26, 52)
 local WHITE = Color3.fromRGB(240, 248, 255)
 local GREY = Color3.fromRGB(100, 120, 150)
+local RED = Color3.fromRGB(220, 55, 75)
 
+-- ล้าง GUI เก่า
 local old = playerGui:FindFirstChild("ProFirstUI")
 if old then old:Destroy() end
 
@@ -24,6 +26,22 @@ gui.Name = "ProFirstUI"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 100
 gui.Parent = playerGui
+
+local connections = {}
+local highlights = {}
+local espEnabled = false
+local running = true
+local minimized = false
+local dragging = false
+local dragStart
+local startPos
+local dragInput
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(connections, connection)
+    return connection
+end
 
 local function corner(object, radius)
     local c = Instance.new("UICorner")
@@ -46,9 +64,10 @@ local function button(parent, name, text, size, pos)
     b.BackgroundColor3 = PANEL
     b.Text = text
     b.TextColor3 = WHITE
-    b.TextSize = 17
+    b.TextSize = 15
     b.Font = Enum.Font.GothamBold
     b.BorderSizePixel = 0
+    b.AutoButtonColor = true
     b.Parent = parent
     corner(b, 9)
     return b
@@ -57,8 +76,8 @@ end
 -- หน้าต่างหลัก
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = UDim2.fromOffset(330, 300)
-main.Position = UDim2.new(0.5, -165, 0.5, -150)
+main.Size = UDim2.fromOffset(330, 330)
+main.Position = UDim2.new(0.5, -165, 0.5, -165)
 main.BackgroundColor3 = DARK
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
@@ -100,15 +119,15 @@ local hideButton = button(
 -- เนื้อหา
 local body = Instance.new("Frame")
 body.Name = "Body"
-body.Position = UDim2.fromOffset(12, 66)
-body.Size = UDim2.new(1, -24, 1, -108)
+body.Position = UDim2.fromOffset(12, 65)
+body.Size = UDim2.new(1, -24, 1, -105)
 body.BackgroundTransparency = 1
 body.Parent = main
 
 local heading = Instance.new("TextLabel")
 heading.Size = UDim2.new(1, 0, 0, 28)
 heading.BackgroundTransparency = 1
-heading.Text = "PLAYER ESP  /  NEON BLUE"
+heading.Text = "PLAYER ESP / NEON BLUE"
 heading.TextColor3 = WHITE
 heading.TextSize = 15
 heading.Font = Enum.Font.GothamBold
@@ -116,10 +135,10 @@ heading.TextXAlignment = Enum.TextXAlignment.Left
 heading.Parent = body
 
 local description = Instance.new("TextLabel")
-description.Position = UDim2.fromOffset(0, 30)
-description.Size = UDim2.new(1, 0, 0, 36)
+description.Position = UDim2.fromOffset(0, 29)
+description.Size = UDim2.new(1, 0, 0, 30)
 description.BackgroundTransparency = 1
-description.Text = "ไฮไลต์ตัวละครผู้เล่นในเกมของคุณ"
+description.Text = "Highlight สำหรับเกมของคุณเอง"
 description.TextColor3 = GREY
 description.TextSize = 12
 description.Font = Enum.Font.Gotham
@@ -127,8 +146,8 @@ description.TextXAlignment = Enum.TextXAlignment.Left
 description.Parent = body
 
 local espRow = Instance.new("Frame")
-espRow.Position = UDim2.fromOffset(0, 76)
-espRow.Size = UDim2.new(1, 0, 0, 64)
+espRow.Position = UDim2.fromOffset(0, 68)
+espRow.Size = UDim2.new(1, 0, 0, 62)
 espRow.BackgroundColor3 = PANEL
 espRow.BorderSizePixel = 0
 espRow.Parent = body
@@ -139,7 +158,7 @@ local espLabel = Instance.new("TextLabel")
 espLabel.Position = UDim2.fromOffset(12, 5)
 espLabel.Size = UDim2.new(1, -90, 0, 26)
 espLabel.BackgroundTransparency = 1
-espLabel.Text = "มองทะลุ (ESP)"
+espLabel.Text = "Player Highlight"
 espLabel.TextColor3 = WHITE
 espLabel.TextSize = 15
 espLabel.Font = Enum.Font.GothamBold
@@ -147,7 +166,7 @@ espLabel.TextXAlignment = Enum.TextXAlignment.Left
 espLabel.Parent = espRow
 
 local espInfo = Instance.new("TextLabel")
-espInfo.Position = UDim2.fromOffset(12, 32)
+espInfo.Position = UDim2.fromOffset(12, 31)
 espInfo.Size = UDim2.new(1, -90, 0, 20)
 espInfo.BackgroundTransparency = 1
 espInfo.Text = "สถานะ: ปิด"
@@ -164,6 +183,14 @@ local toggle = button(
 )
 toggle.TextSize = 13
 
+-- ปุ่มหยุดระบบทั้งหมด
+local stopButton = button(
+    body, "StopAll", "STOP ALL",
+    UDim2.new(1, 0, 0, 38),
+    UDim2.fromOffset(0, 143)
+)
+stopButton.BackgroundColor3 = RED
+
 local status = Instance.new("TextLabel")
 status.Name = "Status"
 status.Position = UDim2.new(0, 12, 1, -30)
@@ -176,20 +203,29 @@ status.Font = Enum.Font.GothamBold
 status.TextXAlignment = Enum.TextXAlignment.Left
 status.Parent = main
 
--- ESP สำหรับเกมของคุณเอง
-local espEnabled = false
-local highlights = {}
-local connections = {}
+-- ปุ่มเรียก GUI กลับ
+local reopen = button(
+    gui, "Reopen", "⚡ ProFirst",
+    UDim2.fromOffset(130, 42),
+    UDim2.new(0, 15, 0.5, -21)
+)
+reopen.Visible = false
+reopen.TextColor3 = BLUE
+stroke(reopen, BLUE, 1)
 
+-- ระบบ Highlight
 local function removeHighlight(target)
-    if highlights[target] then
-        highlights[target]:Destroy()
+    local h = highlights[target]
+    if h then
+        h:Destroy()
         highlights[target] = nil
     end
 end
 
 local function addHighlight(target)
-    if not espEnabled or target == player then return end
+    if not running or not espEnabled or target == player then
+        return
+    end
 
     local character = target.Character
     if not character then return end
@@ -222,11 +258,11 @@ local function refreshESP()
 end
 
 local function watchPlayer(target)
-    if target == player or connections[target] then return end
+    if target == player then return end
 
-    connections[target] = target.CharacterAdded:Connect(function()
+    connect(target.CharacterAdded, function()
         task.wait(0.5)
-        if espEnabled then
+        if running and espEnabled then
             addHighlight(target)
         end
     end)
@@ -236,47 +272,34 @@ local function watchPlayer(target)
     end
 end
 
-local function unwatchPlayer(target)
-    removeHighlight(target)
-
-    if connections[target] then
-        connections[target]:Disconnect()
-        connections[target] = nil
-    end
-end
-
 for _, target in ipairs(Players:GetPlayers()) do
     watchPlayer(target)
 end
 
-Players.PlayerAdded:Connect(watchPlayer)
-Players.PlayerRemoving:Connect(unwatchPlayer)
+connect(Players.PlayerAdded, watchPlayer)
 
-toggle.Activated:Connect(function()
+connect(Players.PlayerRemoving, function(target)
+    removeHighlight(target)
+end)
+
+-- ปุ่มเปิด/ปิด Highlight
+connect(toggle.Activated, function()
+    if not running then return end
+
     espEnabled = not espEnabled
     refreshESP()
 
     toggle.Text = espEnabled and "ON" or "OFF"
-    toggle.BackgroundColor3 = espEnabled
-        and BLUE
-        or PANEL
-
-    espInfo.Text = espEnabled
-        and "สถานะ: เปิด"
-        or "สถานะ: ปิด"
-
+    toggle.BackgroundColor3 = espEnabled and BLUE or PANEL
+    espInfo.Text = espEnabled and "สถานะ: เปิด" or "สถานะ: ปิด"
     espInfo.TextColor3 = espEnabled and BLUE or GREY
-
-    status.Text = espEnabled
-        and "● ESP เปิดใช้งาน"
-        or "● ESP ปิดใช้งาน"
+    status.Text = espEnabled and "● ESP เปิดใช้งาน" or "● ESP ปิดใช้งาน"
 end)
 
--- ย่อและขยาย
-local minimized = false
+-- ย่อและขยายหน้าต่าง
 local fullSize = main.Size
 
-minButton.Activated:Connect(function()
+connect(minButton.Activated, function()
     minimized = not minimized
     body.Visible = not minimized
     status.Visible = not minimized
@@ -289,32 +312,18 @@ minButton.Activated:Connect(function()
 end)
 
 -- ซ่อนและเรียกกลับ
-local reopen = button(
-    gui, "Reopen", "⚡ ProFirst",
-    UDim2.fromOffset(130, 42),
-    UDim2.new(0, 15, 0.5, -21)
-)
-reopen.Visible = false
-reopen.TextColor3 = BLUE
-stroke(reopen, BLUE, 1)
-
-hideButton.Activated:Connect(function()
+connect(hideButton.Activated, function()
     main.Visible = false
     reopen.Visible = true
 end)
 
-reopen.Activated:Connect(function()
+connect(reopen.Activated, function()
     main.Visible = true
     reopen.Visible = false
 end)
 
--- ลากหน้าต่างด้วยนิ้ว
-local dragging = false
-local dragStart
-local startPos
-local dragInput
-
-header.InputBegan:Connect(function(input)
+-- ลากหน้าต่างด้วยนิ้วหรือเมาส์
+connect(header.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.Touch
         or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -322,7 +331,7 @@ header.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = main.Position
 
-        input.Changed:Connect(function()
+        connect(input.Changed, function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
             end
@@ -330,16 +339,17 @@ header.InputBegan:Connect(function(input)
     end
 end)
 
-header.InputChanged:Connect(function(input)
+connect(header.InputChanged, function(input)
     if input.UserInputType == Enum.UserInputType.Touch
         or input.UserInputType == Enum.UserInputType.MouseMovement then
         dragInput = input
     end
 end)
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and input == dragInput then
+connect(UIS.InputChanged, function(input)
+    if running and dragging and input == dragInput then
         local delta = input.Position - dragStart
+
         main.Position = UDim2.new(
             startPos.X.Scale,
             startPos.X.Offset + delta.X,
@@ -349,102 +359,27 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
-print("ProFirst loaded") 
+-- หยุดระบบและล้างการเชื่อมต่อ
+connect(stopButton.Activated, function()
+    if not running then return end
 
+    running = false
+    espEnabled = false
 
--- ======================================================================================
--- [[ 🧠 PAYOMBOYZ CYBER-AI V8 - AUTONOMOUS SYNTHESIZED SYSTEM ]]
--- User Prompt: ลบวิ่งเร็ว
--- Target Environment: FORTLINE [หนึ่งนัด🎯] (PlaceId: 77988271743072)
--- Architecture Standard: Maid Pattern + Finite State Machine (PayomboyZ Knowledge Base)
--- Mapped Telemetry: 41 Remotes | 0 Prompts | 0 Interactive Folders
--- --------------------------------------------------------------------------------------
--- 💡 [คำแนะนำและวิธีใช้งานจาก AI (AI Analysis & Recommendations)]:
--- • การตรวจจับของเกม: ปรับแต่ง WalkSpeed พร้อมระบบ Heartbeat Clamp ป้องกันเกม Reset ค่ากลับ
--- • วิธีใช้งาน: ปรับความเร็วตัวละครทันที และคืนค่าเริ่มต้นอัตโนมัติเมื่อกด Stop Script
--- • คำแนะนำความปลอดภัย: แนะนำความเร็วไม่เกิน 70 studs/s ป้องกันการสะดุดหลุดเซิร์ฟ
--- ======================================================================================
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local Humanoid = Character:WaitForChild("Humanoid")
-local RootPart = Character:WaitForChild("HumanoidRootPart")
-
--- 🧹 Connection Lifecycle & Resource Maid (From PayomboyZ Knowledge: patterns/cleanup.md)
-local Maid = {}
-Maid.__index = Maid
-function Maid.new() return setmetatable({ _tasks = {} }, Maid) end
-function Maid:GiveTask(task) table.insert(self._tasks, task); return task end
-function Maid:DoCleaning()
-    for i = #self._tasks, 1, -1 do
-        local t = self._tasks[i]
-        self._tasks[i] = nil
-        if typeof(t) == "RBXScriptConnection" then t:Disconnect()
-        elseif type(t) == "function" then pcall(t)
-        elseif typeof(t) == "Instance" then pcall(function() t:Destroy() end)
-        elseif type(t) == "table" and type(t.Destroy) == "function" then pcall(function() t:Destroy() end)
-        elseif typeof(t) == "thread" then pcall(function() task.cancel(t) end) end
+    for target in pairs(highlights) do
+        removeHighlight(target)
     end
-end
 
-local ScriptMaid = Maid.new()
-local ScriptActive = true
-local State = "RUNNING"
-
--- Character Respawn Handler
-ScriptMaid:GiveTask(LocalPlayer.CharacterAdded:Connect(function(newChar)
-    Character = newChar
-    Humanoid = newChar:WaitForChild("Humanoid")
-    RootPart = newChar:WaitForChild("HumanoidRootPart")
-end))
-
--- [[ SUB-SYSTEM: SAFE VELOCITY SPEED BOOSTER ]]
-local TargetSpeed = 65
-Humanoid.WalkSpeed = TargetSpeed
-local speedLoop = RunService.Heartbeat:Connect(function()
-    if Humanoid and Humanoid.WalkSpeed ~= TargetSpeed then
-        Humanoid.WalkSpeed = TargetSpeed
+    for _, connection in ipairs(connections) do
+        if connection.Connected then
+            connection:Disconnect()
+        end
     end
-end)
-ScriptMaid:GiveTask(speedLoop)
 
--- [[ CONTROL PANEL & DEACTIVATION HUD ]]
-local parentGui = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui")
-local hud = Instance.new("ScreenGui")
-hud.Name = "PayomboyZ_MiniHUD_" .. tostring(tick())
-hud.ResetOnSpawn = false
-hud.Parent = parentGui
-ScriptMaid:GiveTask(hud)
+    table.clear(connections)
 
-local stopBtn = Instance.new("TextButton")
-stopBtn.Size = UDim2.new(0, 160, 0, 36)
-stopBtn.Position = UDim2.new(0.5, -80, 0, 18)
-stopBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 45)
-stopBtn.Text = "🛑 Stop Script (Clean Up)"
-stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-stopBtn.Font = Enum.Font.GothamBold
-stopBtn.TextSize = 12
-stopBtn.Parent = hud
-local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(0, 8); bc.Parent = stopBtn
-
-stopBtn.MouseButton1Click:Connect(function()
-    ScriptActive = false
-    ScriptMaid:DoCleaning()
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "PayomboyZ AI System",
-        Text = "Synthesized script stopped & memory cleaned.",
-        Duration = 3
-    })
+    gui:Destroy()
 end)
 
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "PayomboyZ AI V8 Ready",
-    Text = "Script initialized with Maid cleanup support!",
-    Duration = 4
-})
+print("ProFirst loaded successfully")
+
