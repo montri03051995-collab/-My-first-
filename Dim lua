@@ -1,10 +1,17 @@
 
 --==================================================
--- ProFirst | FLUENT NEON BLUE
--- ตัวเต็ม: UI + ESP + Settings + STOP ALL
+-- ProFirst | NEON GREEN THAI EDITION
+-- Player + NPC Highlight สีเขียวทั้งหมด
+-- สำหรับเกม Roblox ที่คุณสร้างหรือได้รับอนุญาต
+--==================================================
+
+--==================================================
+-- 1. SERVICES
 --==================================================
 
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
 local LocalPlayer = Players.LocalPlayer
 
 if not LocalPlayer then
@@ -13,75 +20,26 @@ if not LocalPlayer then
 end
 
 --==================================================
--- 1. LOAD LIBRARIES + ERROR HANDLING
+-- 2. CONFIGURATION
 --==================================================
 
-local function loadLibrary(name, url)
-    local ok, result = pcall(function()
-        local response = game:HttpGet(url)
+local GREEN = Color3.fromRGB(0, 255, 100)
 
-        assert(
-            type(response) == "string" and #response > 0,
-            "ดาวน์โหลดไฟล์ไม่สำเร็จหรือไฟล์ว่าง"
-        )
-
-        local compile, compileError = loadstring(response)
-
-        assert(compile, compileError or "loadstring ใช้งานไม่ได้")
-
-        return compile()
-    end)
-
-    if not ok then
-        warn("[ProFirst] โหลด " .. name .. " ไม่สำเร็จ: " .. tostring(result))
-        return nil
-    end
-
-    if result == nil then
-        warn("[ProFirst] " .. name .. " ไม่ส่งค่ากลับ")
-        return nil
-    end
-
-    return result
-end
-
-local Fluent = loadLibrary(
-    "Fluent",
-    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
-)
-
-if not Fluent then
-    warn("[ProFirst] หยุดทำงาน เพราะโหลด Fluent ไม่สำเร็จ")
-    return
-end
-
-local SaveManager = loadLibrary(
-    "SaveManager",
-    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"
-)
-
-local InterfaceManager = loadLibrary(
-    "InterfaceManager",
-    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"
-)
-
-if not SaveManager or not InterfaceManager then
-    warn("[ProFirst] โหลด Addons ไม่ครบ จึงหยุดเพื่อป้องกัน Error")
-    return
-end
-
---==================================================
--- 2. STATE
---==================================================
-
-local BLUE = Color3.fromRGB(0, 170, 255)
-local WHITE = Color3.fromRGB(240, 248, 255)
+local FILL_TRANSPARENCY = 0.55
+local OUTLINE_TRANSPARENCY = 0
 
 local running = true
-local espEnabled = false
+local highlightEnabled = false
+
 local highlights = {}
 local connections = {}
+
 local Window
+local HighlightSwitch
+
+--==================================================
+-- 3. CONNECTION MANAGEMENT
+--==================================================
 
 local function connect(signal, callback)
     local connection = signal:Connect(callback)
@@ -89,118 +47,245 @@ local function connect(signal, callback)
     return connection
 end
 
+local function disconnectAll()
+    for _, connection in ipairs(connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+
+    table.clear(connections)
+end
+
 --==================================================
--- 3. HIGHLIGHT FUNCTIONS
+-- 4. CHECK TARGET
+-- ผู้เล่นและ NPC ใช้สีเดียวกัน
 --==================================================
 
-local function removeHighlight(target)
-    local highlight = highlights[target]
+local function isTarget(model)
+    if not model or not model:IsA("Model") then
+        return false
+    end
+
+    if model == LocalPlayer.Character then
+        return false
+    end
+
+    if not model:FindFirstChildOfClass("Humanoid") then
+        return false
+    end
+
+    return true
+end
+
+--==================================================
+-- 5. REMOVE HIGHLIGHT
+--==================================================
+
+local function removeHighlight(model)
+    local highlight = highlights[model]
 
     if highlight then
         pcall(function()
             highlight:Destroy()
         end)
 
-        highlights[target] = nil
+        highlights[model] = nil
     end
 end
 
-local function addHighlight(target)
-    if not running or not espEnabled then
+--==================================================
+-- 6. ADD GREEN HIGHLIGHT
+--==================================================
+
+local function addHighlight(model)
+    if not running or not highlightEnabled then
         return
     end
 
-    if target == LocalPlayer then
+    if not isTarget(model) then
         return
     end
 
-    local character = target.Character
-    if not character then
+    local existing = highlights[model]
+
+    if existing
+        and existing.Parent
+        and existing.Adornee == model then
         return
     end
 
-    removeHighlight(target)
+    removeHighlight(model)
 
-    local ok, highlight = pcall(function()
-        local h = Instance.new("Highlight")
-        h.Name = "ProFirstPlayerHighlight"
-        h.Adornee = character
-        h.FillColor = BLUE
-        h.OutlineColor = WHITE
-        h.FillTransparency = 0.7
-        h.OutlineTransparency = 0
-        h.DepthMode = Enum.HighlightDepthMode.Occluded
-        h.Parent = character
-        return h
+    local success, result = pcall(function()
+        local highlight = Instance.new("Highlight")
+
+        highlight.Name = "ProFirstGreenHighlight"
+        highlight.Adornee = model
+        highlight.FillColor = GREEN
+        highlight.OutlineColor = GREEN
+        highlight.FillTransparency = FILL_TRANSPARENCY
+        highlight.OutlineTransparency = OUTLINE_TRANSPARENCY
+
+        -- ไม่แสดงทะลุกำแพง
+        highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+
+        highlight.Parent = model
+
+        return highlight
     end)
 
-    if ok and highlight then
-        highlights[target] = highlight
+    if success and result then
+        highlights[model] = result
     else
-        warn("[ProFirst] สร้าง Highlight ไม่สำเร็จ:", highlight)
+        warn("[ProFirst] สร้าง Highlight ไม่สำเร็จ:", result)
     end
 end
 
-local function refreshESP()
+--==================================================
+-- 7. SCAN ALL CHARACTERS / NPC
+--==================================================
+
+local function scanAll()
     if not running then
         return
     end
 
-    for _, target in ipairs(Players:GetPlayers()) do
-        if target ~= LocalPlayer then
-            if espEnabled then
-                addHighlight(target)
+    -- ผู้เล่นทุกคนยกเว้นตัวเอง
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if highlightEnabled then
+                addHighlight(player.Character)
             else
-                removeHighlight(target)
+                removeHighlight(player.Character)
+            end
+        end
+    end
+
+    -- NPC และโมเดล Humanoid ที่อยู่ใน Workspace
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        if object:IsA("Model") and isTarget(object) then
+            -- ไม่สร้าง Highlight ซ้ำให้ตัวละครผู้เล่น
+            local player = Players:GetPlayerFromCharacter(object)
+
+            if not player then
+                if highlightEnabled then
+                    addHighlight(object)
+                else
+                    removeHighlight(object)
+                end
             end
         end
     end
 end
 
 --==================================================
--- 4. PLAYER EVENTS
+-- 8. PLAYER EVENTS
 --==================================================
 
-local function watchPlayer(target)
-    if target == LocalPlayer then
+local function watchPlayer(player)
+    if player == LocalPlayer then
         return
     end
 
-    connect(target.CharacterAdded, function()
-        task.wait(0.5)
+    connect(player.CharacterAdded, function(character)
+        task.wait(0.3)
 
-        if running and espEnabled then
-            addHighlight(target)
+        if running and highlightEnabled then
+            addHighlight(character)
         end
     end)
 
-    connect(target.CharacterRemoving, function()
-        removeHighlight(target)
+    connect(player.CharacterRemoving, function(character)
+        removeHighlight(character)
     end)
 
-    if espEnabled then
-        addHighlight(target)
+    if player.Character and highlightEnabled then
+        addHighlight(player.Character)
     end
 end
 
-for _, target in ipairs(Players:GetPlayers()) do
-    watchPlayer(target)
+for _, player in ipairs(Players:GetPlayers()) do
+    watchPlayer(player)
 end
 
-connect(Players.PlayerAdded, watchPlayer)
+connect(Players.PlayerAdded, function(player)
+    if running then
+        watchPlayer(player)
+    end
+end)
 
-connect(Players.PlayerRemoving, function(target)
-    removeHighlight(target)
+connect(Players.PlayerRemoving, function(player)
+    if player.Character then
+        removeHighlight(player.Character)
+    end
 end)
 
 --==================================================
--- 5. CREATE FLUENT WINDOW
+-- 9. WATCH NEW NPC MODELS
 --==================================================
 
-local ok, windowResult = pcall(function()
+connect(Workspace.DescendantAdded, function(object)
+    if not running or not highlightEnabled then
+        return
+    end
+
+    if object:IsA("Model") then
+        task.defer(function()
+            if running and highlightEnabled and object.Parent then
+                addHighlight(object)
+            end
+        end)
+    end
+end)
+
+connect(Workspace.DescendantRemoving, function(object)
+    if object:IsA("Model") then
+        removeHighlight(object)
+    end
+end)
+
+--==================================================
+-- 10. LOAD FLUENT
+--==================================================
+
+local function loadFluent()
+    local success, result = pcall(function()
+        local source = game:HttpGet(
+            "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
+        )
+
+        assert(type(source) == "string" and #source > 0, "ดาวน์โหลด Fluent ไม่สำเร็จ")
+
+        local compiler, compileError = loadstring(source)
+        assert(compiler, compileError or "Compile error")
+
+        return compiler()
+    end)
+
+    if not success then
+        warn("[ProFirst] โหลด Fluent ไม่สำเร็จ:", result)
+        return nil
+    end
+
+    return result
+end
+
+local Fluent = loadFluent()
+
+if not Fluent then
+    disconnectAll()
+    return
+end
+
+--==================================================
+-- 11. CREATE WINDOW
+--==================================================
+
+local success, result = pcall(function()
     return Fluent:CreateWindow({
-        Title = "ProFirst",
-        SubTitle = "ANIME NEON BLUE",
+        Title = "ProFirst | นีออนสีเขียว",
+        SubTitle = "Player + NPC Highlight",
         TabWidth = 160,
         Size = UDim2.fromOffset(540, 420),
         Acrylic = false,
@@ -209,97 +294,109 @@ local ok, windowResult = pcall(function()
     })
 end)
 
-if not ok or not windowResult then
-    warn("[ProFirst] สร้างหน้าต่าง Fluent ไม่สำเร็จ:", windowResult)
-
-    for _, connection in ipairs(connections) do
-        connection:Disconnect()
-    end
-
+if not success or not result then
+    warn("[ProFirst] สร้างหน้าต่างไม่สำเร็จ:", result)
+    disconnectAll()
     return
 end
 
-Window = windowResult
+Window = result
 
-local Tabs = {
-    Main = Window:AddTab({
-        Title = "Main",
-        Icon = "zap"
-    }),
-
-    Settings = Window:AddTab({
-        Title = "Settings",
-        Icon = "settings"
-    })
-}
-
---==================================================
--- 6. MAIN TAB
---==================================================
-
-Tabs.Main:AddParagraph({
-    Title = "⚡ ProFirst",
-    Content = "ANIME NEON BLUE | Player Highlight"
+local MainTab = Window:AddTab({
+    Title = "หน้าหลัก",
+    Icon = "eye"
 })
 
-Tabs.Main:AddParagraph({
-    Title = "คำแนะนำ",
-    Content = "เปิด Player Highlight เพื่อแสดงเส้นขอบตัวละครผู้เล่นอื่น"
+local SettingsTab = Window:AddTab({
+    Title = "ตั้งค่า",
+    Icon = "settings"
 })
 
--- ESP Toggle
-local ESPSwitch = Tabs.Main:AddToggle("ProFirstESP", {
-    Title = "Player Highlight",
-    Description = "เปิดหรือปิด Highlight",
+--==================================================
+-- 12. MAIN UI
+--==================================================
+
+MainTab:AddParagraph({
+    Title = "ProFirst",
+    Content = "ผู้เล่นและ NPC ใช้ Highlight สีเขียวนีออนเหมือนกัน"
+})
+
+MainTab:AddParagraph({
+    Title = "วิธีใช้งาน",
+    Content = "เปิดสวิตช์เพื่อแสดง Highlight ให้โมเดล Humanoid ที่ตรวจพบ"
+})
+
+HighlightSwitch = MainTab:AddToggle("ProFirstGreenHighlight", {
+    Title = "เปิด/ปิด Highlight สีเขียว",
+    Description = "แสดงหรือซ่อน Highlight ของผู้เล่นและ NPC",
     Default = false
 })
 
-ESPSwitch:OnChanged(function(value)
+HighlightSwitch:OnChanged(function(value)
     if not running then
         return
     end
 
-    espEnabled = value
-    refreshESP()
+    highlightEnabled = value
+
+    if value then
+        scanAll()
+    else
+        for model in pairs(highlights) do
+            removeHighlight(model)
+        end
+    end
 
     Fluent:Notify({
         Title = "ProFirst",
-        Content = value and "ESP เปิดแล้ว" or "ESP ปิดแล้ว",
+        Content = value and "เปิด Highlight สีเขียวแล้ว"
+            or "ปิด Highlight แล้ว",
         Duration = 3
     })
 end)
 
--- Refresh
-Tabs.Main:AddButton({
-    Title = "Refresh Highlight",
-    Description = "อัปเดต Highlight ผู้เล่นปัจจุบัน",
+--==================================================
+-- 13. REFRESH BUTTON
+--==================================================
+
+MainTab:AddButton({
+    Title = "รีเฟรช Highlight",
+    Description = "ค้นหาผู้เล่นและ NPC ใหม่",
+
     Callback = function()
         if not running then
             return
         end
 
-        refreshESP()
+        scanAll()
 
         Fluent:Notify({
             Title = "ProFirst",
-            Content = "อัปเดตเรียบร้อย",
+            Content = "ค้นหาเป้าหมายเสร็จแล้ว",
             Duration = 3
         })
     end
 })
 
--- Clear
-Tabs.Main:AddButton({
-    Title = "Clear Highlight",
-    Description = "ปิด ESP และลบ Highlight ทั้งหมด",
+--==================================================
+-- 14. CLEAR BUTTON
+--==================================================
+
+MainTab:AddButton({
+    Title = "ล้าง Highlight ทั้งหมด",
+    Description = "ปิดสวิตช์และลบ Highlight ที่สร้าง",
+
     Callback = function()
         if not running then
             return
         end
 
-        espEnabled = false
-        ESPSwitch:SetValue(false)
-        refreshESP()
+        highlightEnabled = false
+        HighlightSwitch:SetValue(false)
+
+        for model in pairs(highlights) do
+            removeHighlight(model)
+        end
 
         Fluent:Notify({
             Title = "ProFirst",
@@ -309,25 +406,29 @@ Tabs.Main:AddButton({
     end
 })
 
--- Minimize
-Tabs.Main:AddButton({
-    Title = "Minimize Window",
-    Description = "ย่อหน้าต่าง Fluent",
+--==================================================
+-- 15. MINIMIZE WINDOW
+--==================================================
+
+MainTab:AddButton({
+    Title = "ย่อหน้าต่าง",
+    Description = "ย่อหน้าต่างผ่าน API ของ Fluent",
+
     Callback = function()
         if not running then
             return
         end
 
-        local minimizeOK, minimizeError = pcall(function()
+        local ok, err = pcall(function()
             Window:Minimize()
         end)
 
-        if not minimizeOK then
-            warn("[ProFirst] Fluent รุ่นนี้ไม่รองรับ Minimize:", minimizeError)
+        if not ok then
+            warn("[ProFirst] ย่อหน้าต่างไม่สำเร็จ:", err)
 
             Fluent:Notify({
                 Title = "ProFirst",
-                Content = "รุ่น Fluent นี้ไม่รองรับคำสั่งย่อหน้าต่าง",
+                Content = "Fluent รุ่นนี้อาจไม่รองรับ Window:Minimize()",
                 Duration = 4
             })
         end
@@ -335,31 +436,26 @@ Tabs.Main:AddButton({
 })
 
 --==================================================
--- 7. STOP ALL
+-- 16. STOP ALL
 --==================================================
 
-Tabs.Main:AddButton({
-    Title = "STOP ALL",
-    Description = "ปิด ESP ล้าง Highlight และหยุดระบบ",
+MainTab:AddButton({
+    Title = "หยุดระบบทั้งหมด",
+    Description = "หยุด Event และลบ Highlight ทั้งหมด",
+
     Callback = function()
         if not running then
             return
         end
 
         running = false
-        espEnabled = false
+        highlightEnabled = false
 
-        for target in pairs(highlights) do
-            removeHighlight(target)
+        for model in pairs(highlights) do
+            removeHighlight(model)
         end
 
-        for _, connection in ipairs(connections) do
-            if connection.Connected then
-                connection:Disconnect()
-            end
-        end
-
-        table.clear(connections)
+        disconnectAll()
 
         pcall(function()
             Fluent:Notify({
@@ -371,44 +467,36 @@ Tabs.Main:AddButton({
 
         task.delay(0.3, function()
             pcall(function()
-                Fluent:Unload()
+                Window:Minimize()
             end)
         end)
     end
 })
 
 --==================================================
--- 8. SETTINGS + CONFIGURATION
+-- 17. SETTINGS TAB
 --==================================================
 
-local setupOK, setupError = pcall(function()
-    SaveManager:SetLibrary(Fluent)
-    InterfaceManager:SetLibrary(Fluent)
+SettingsTab:AddParagraph({
+    Title = "การตั้งค่า",
+    Content = "สีของผู้เล่นและ NPC: เขียวนีออน"
+})
 
-    SaveManager:IgnoreThemeSettings()
-    SaveManager:SetIgnoreIndexes({})
-
-    InterfaceManager:SetFolder("ProFirst")
-    SaveManager:SetFolder("ProFirst/Configurations")
-
-    InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-    SaveManager:BuildConfigSection(Tabs.Settings)
-end)
-
-if not setupOK then
-    warn("[ProFirst] ตั้งค่า Addons ไม่สำเร็จ:", setupError)
-end
+SettingsTab:AddParagraph({
+    Title = "หมายเหตุ",
+    Content = "ตรวจพบโมเดลที่มี Humanoid ใน Workspace โดยไม่นับตัวละครของคุณเอง"
+})
 
 --==================================================
--- 9. START
+-- 18. START
 --==================================================
 
 Window:SelectTab(1)
 
 Fluent:Notify({
     Title = "ProFirst",
-    Content = "โหลด UI สำเร็จ",
+    Content = "โหลด UI ภาษาไทยสำเร็จ",
     Duration = 5
 })
 
-print("[ProFirst] Fluent Neon Blue loaded")
+print("[ProFirst] Neon Green Edition loaded")
