@@ -1,634 +1,539 @@
--- ProFirst | SHOOTER EDITION v5.2 — DELTA EXECUTOR
--- รันใน Delta: VirtualInputManager แทน mouse1press + pcall ทุกจุดเสี่ยง
---==================================================
-
+-- ProFirst | SAFE ESP & UI FOR DELTA (Fix Drawing API Error)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputService = game:GetService("VirtualInputService")
-
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then warn("[ProFirst] ไม่พบ LocalPlayer") return end
 
---==================================================
--- CONFIG / STATE
---==================================================
+if not LocalPlayer then return end
 
-local BOT_COLOR          = Color3.fromRGB(0, 255, 100)
-local PLAYER_COLOR       = Color3.fromRGB(255, 40, 40)
-local FILL_TRANSPARENCY  = 0.55
-local MAX_DISTANCE       = 2500
-local SCAN_INTERVAL      = 2
+-- ==================== COLORS & CONFIG ====================
+local BOT_COLOR = Color3.fromRGB(0, 255, 100)
+local PLAYER_COLOR = Color3.fromRGB(255, 40, 40)
+local THEME_DARK = Color3.fromRGB(10, 16, 28)
+local THEME_PANEL = Color3.fromRGB(15, 25, 45)
+local THEME_NEON = Color3.fromRGB(0, 230, 255)
 
-local running = true
-local state = {
-    Master = false, Highlight = true, Box = true, Tracer = true,
-    Distance = true, NameTag = true, HealthBar = true, LockNear = true,
-    LockAim = false, AimSmooth = 12, AimPart = "Head", AimFOV = 250,
-    ShowFOV = true, TriggerBot = false, TriggerDelay = 0.08,
-    TeamCheck = true, AutoScan = true,
-}
+local espEnabled = true
+local targets = {}
+local renderConnection = nil
 
-local nearDistance  = 10
-local targets       = {}
-local connections   = {}
-local pendingRemoval= {}
-local Window, lockedTarget, fovCircle, Fluent
-local lastShot = 0
+-- ==================== GUI CONTAINER ====================
+local mainGui = Instance.new("ScreenGui")
+mainGui.Name = "ProFirst_SafeUI"
+mainGui.ResetOnSpawn = false
+mainGui.IgnoreGuiInset = true
 
---==================================================
--- HELPERS
---==================================================
+local successParent = pcall(function()
+    mainGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end)
+if not successParent then return end
 
-local function connect(signal, cb)
-    local c = signal:Connect(cb)
-    table.insert(connections, c)
-    return c
+-- 1. ปุ่มโลโก้ F
+local logoBtn = Instance.new("TextButton")
+logoBtn.Name = "LogoButton"
+logoBtn.Size = UDim2.fromOffset(45, 45)
+logoBtn.Position = UDim2.new(0.5, -22, 0.2, 0)
+logoBtn.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+logoBtn.Text = "F"
+logoBtn.TextColor3 = Color3.fromRGB(255, 200, 0)
+logoBtn.Font = Enum.Font.FredokaOne
+logoBtn.TextSize = 26
+logoBtn.Visible = false
+logoBtn.Parent = mainGui
+
+local logoCorner = Instance.new("UICorner")
+logoCorner.CornerRadius = UDim.new(0, 8)
+logoCorner.Parent = logoBtn
+
+local logoStroke = Instance.new("UIStroke")
+logoStroke.Color = THEME_NEON
+logoStroke.Thickness = 2
+logoStroke.Parent = logoBtn
+
+-- ลากปุ่มโลโก้
+local draggingLogo, dragStartLogo, startPosLogo
+logoBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingLogo = true
+        dragStartLogo = input.Position
+        startPosLogo = logoBtn.Position
+    end
+end)
+logoBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingLogo = false
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if draggingLogo and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStartLogo
+        logoBtn.Position = UDim2.new(startPosLogo.X.Scale, startPosLogo.X.Offset + delta.X, startPosLogo.Y.Scale, startPosLogo.Y.Offset + delta.Y)
+    end
+end)
+
+-- 2. หน้าต่างหลัก (Main Frame)
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.fromOffset(500, 320)
+mainFrame.Position = UDim2.new(0.5, -250, 0.5, -160)
+mainFrame.BackgroundColor3 = THEME_DARK
+mainFrame.Visible = true
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = mainGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = THEME_NEON
+mainStroke.Thickness = 2
+mainStroke.Parent = mainFrame
+
+-- ปุ่มย่อ (-) และปิด (X)
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.fromOffset(25, 25)
+minimizeBtn.Position = UDim2.new(1, -60, 0, 8)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 60, 90)
+minimizeBtn.Text = "-"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 16
+minimizeBtn.Parent = mainFrame
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 4)
+minCorner.Parent = minimizeBtn
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.fromOffset(25, 25)
+closeBtn.Position = UDim2.new(1, -30, 0, 8)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 14
+closeBtn.Parent = mainFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 4)
+closeCorner.Parent = closeBtn
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    logoBtn.Visible = true
+end)
+
+logoBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = true
+    logoBtn.Visible = false
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    logoBtn.Visible = true
+end)
+
+-- Sidebar
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 130, 1, 0)
+sidebar.BackgroundColor3 = THEME_PANEL
+sidebar.BorderSizePixel = 0
+sidebar.Parent = mainFrame
+
+local sidebarCorner = Instance.new("UICorner")
+sidebarCorner.CornerRadius = UDim.new(0, 10)
+sidebarCorner.Parent = sidebar
+
+local sideLogo = Instance.new("TextLabel")
+sideLogo.Size = UDim2.fromOffset(35, 35)
+sideLogo.Position = UDim2.fromOffset(10, 10)
+sideLogo.BackgroundColor3 = Color3.fromRGB(10, 15, 25)
+sideLogo.Text = "F"
+sideLogo.TextColor3 = Color3.fromRGB(255, 200, 0)
+sideLogo.Font = Enum.Font.FredokaOne
+sideLogo.TextSize = 22
+sideLogo.Parent = sidebar
+
+local navContainer = Instance.new("Frame")
+navContainer.Size = UDim2.new(1, -10, 1, -55)
+navContainer.Position = UDim2.fromOffset(5, 55)
+navContainer.BackgroundTransparency = 1
+navContainer.Parent = sidebar
+
+local navLayout = Instance.new("UIListLayout")
+navLayout.Padding = UDim.new(0, 5)
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navLayout.Parent = navContainer
+
+local contentArea = Instance.new("Frame")
+contentArea.Size = UDim2.new(1, -145, 1, -45)
+contentArea.Position = UDim2.fromOffset(140, 40)
+contentArea.BackgroundTransparency = 1
+contentArea.Parent = mainFrame
+
+local tabs = {}
+local function createTabButton(name, iconText, order)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 35)
+    btn.BackgroundColor3 = THEME_PANEL
+    btn.Text = "  " .. iconText .. " " .. name
+    btn.TextColor3 = Color3.fromRGB(180, 200, 220)
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.LayoutOrder = order
+    btn.Parent = navContainer
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    local tabFrame = Instance.new("ScrollingFrame")
+    tabFrame.Size = UDim2.new(1, 0, 1, 0)
+    tabFrame.BackgroundTransparency = 1
+    tabFrame.ScrollBarThickness = 2
+    tabFrame.Visible = false
+    tabFrame.Parent = contentArea
+
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Padding = UDim.new(0, 10)
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    contentLayout.Parent = tabFrame
+
+    btn.MouseButton1Click:Connect(function()
+        for _, t in pairs(tabs) do
+            t.Btn.BackgroundColor3 = THEME_PANEL
+            t.Btn.TextColor3 = Color3.fromRGB(180, 200, 220)
+            t.Frame.Visible = false
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        tabFrame.Visible = true
+    end)
+
+    tabs[name] = {Btn = btn, Frame = tabFrame}
+    return tabFrame
 end
 
-local function disconnectAll()
-    for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
-    table.clear(connections)
-end
+local pageESP = createTabButton("โปรมอง", "🎯", 1)
+local pageSettings = createTabButton("ตั้งค่า", "⚙️", 2)
+local pagePlayer = createTabButton("Player", "👤", 3)
 
+tabs["โปรมอง"].Btn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+tabs["โปรมอง"].Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tabs["โปรมอง"].Frame.Visible = true
+
+-- ==================== 1. หน้าโปรมอง ====================
+local toggleBox = Instance.new("Frame")
+toggleBox.Size = UDim2.new(1, 0, 0, 45)
+toggleBox.BackgroundColor3 = THEME_PANEL
+toggleBox.Parent = pageESP
+
+local tbCorner = Instance.new("UICorner")
+tbCorner.CornerRadius = UDim.new(0, 6)
+tbCorner.Parent = toggleBox
+
+local tbLabel = Instance.new("TextLabel")
+tbLabel.Text = "🎯 เปิด/ปิด ESP"
+tbLabel.Font = Enum.Font.GothamMedium
+tbLabel.TextSize = 13
+tbLabel.TextColor3 = Color3.fromRGB(220, 230, 240)
+tbLabel.Position = UDim2.fromOffset(10, 0)
+tbLabel.Size = UDim2.new(0.6, 0, 1, 0)
+tbLabel.BackgroundTransparency = 1
+tbLabel.TextXAlignment = Enum.TextXAlignment.Left
+tbLabel.Parent = toggleBox
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.fromOffset(70, 26)
+toggleBtn.Position = UDim2.new(1, -80, 0.5, -13)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
+toggleBtn.Text = "ON"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 12
+toggleBtn.Parent = toggleBox
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 13)
+toggleCorner.Parent = toggleBtn
+
+-- ==================== 2. หน้าตั้งค่า ====================
+local perfCard = Instance.new("Frame")
+perfCard.Size = UDim2.new(1, 0, 0, 110)
+perfCard.BackgroundColor3 = THEME_PANEL
+perfCard.Parent = pageSettings
+
+local pfCorner = Instance.new("UICorner")
+pfCorner.CornerRadius = UDim.new(0, 6)
+pfCorner.Parent = perfCard
+
+local fpsBtn = Instance.new("TextButton")
+fpsBtn.Size = UDim2.new(1, -20, 0, 35)
+fpsBtn.Position = UDim2.fromOffset(10, 15)
+fpsBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 80)
+fpsBtn.Text = "🚀 ปลดล็อก FPS สูงสุด"
+fpsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+fpsBtn.Font = Enum.Font.GothamBold
+fpsBtn.TextSize = 12
+fpsBtn.Parent = perfCard
+
+fpsBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        if setfpscap then setfpscap(999) end
+        fpsBtn.Text = "🚀 ปลดล็อก FPS สำเร็จ"
+    end)
+end)
+
+local gfxBtn = Instance.new("TextButton")
+gfxBtn.Size = UDim2.new(1, -20, 0, 35)
+gfxBtn.Position = UDim2.fromOffset(10, 60)
+gfxBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 0)
+gfxBtn.Text = "📉 ลดกราฟฟิก (Boost FPS)"
+gfxBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+gfxBtn.Font = Enum.Font.GothamBold
+gfxBtn.TextSize = 12
+gfxBtn.Parent = perfCard
+
+gfxBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.Material = Enum.Material.SmoothPlastic
+            end
+        end
+        gfxBtn.Text = "📉 ลดกราฟฟิกสำเร็จ"
+    end)
+end)
+
+-- ==================== 3. หน้า PLAYER ====================
+local playerListContainer = Instance.new("ScrollingFrame")
+playerListContainer.Size = UDim2.new(1, 0, 1, -40)
+playerListContainer.BackgroundTransparency = 1
+playerListContainer.ScrollBarThickness = 2
+playerListContainer.Parent = pagePlayer
+
+local plLayout = Instance.new("UIListLayout")
+plLayout.Padding = UDim.new(0, 6)
+plLayout.Parent = playerListContainer
+
+local refreshPlrBtn = Instance.new("TextButton")
+refreshPlrBtn.Size = UDim2.new(1, 0, 0, 32)
+refreshPlrBtn.Position = UDim2.new(0, 0, 1, -35)
+refreshPlrBtn.BackgroundColor3 = Color3.fromRGB(0, 110, 180)
+refreshPlrBtn.Text = "🔄 อัปเดตข้อมูลผู้เล่น"
+refreshPlrBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshPlrBtn.Font = Enum.Font.GothamBold
+refreshPlrBtn.TextSize = 12
+refreshPlrBtn.Parent = pagePlayer
+
+local function updatePlayerList()
+    for _, child in ipairs(playerListContainer:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    for model, data in pairs(targets) do
+        if model and model.Parent and data.Humanoid then
+            local card = Instance.new("Frame")
+            card.Size = UDim2.new(1, -5, 0, 45)
+            card.BackgroundColor3 = THEME_PANEL
+            card.Parent = playerListContainer
+
+            local cc = Instance.new("UICorner")
+            cc.CornerRadius = UDim.new(0, 6)
+            cc.Parent = card
+
+            local infoLabel = Instance.new("TextLabel")
+            infoLabel.Size = UDim2.new(1, -10, 1, 0)
+            infoLabel.Position = UDim2.fromOffset(8, 0)
+            infoLabel.BackgroundTransparency = 1
+            infoLabel.Font = Enum.Font.GothamMedium
+            infoLabel.TextSize = 11
+            infoLabel.TextColor3 = Color3.fromRGB(230, 240, 255)
+            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+            
+            local dist = 0
+            pcall(function()
+                dist = (Workspace.CurrentCamera.CFrame.Position - data.RootPart.Position).Magnitude
+            end)
+
+            local typeStr = Players:GetPlayerFromCharacter(model) and "Player" or "Bot"
+            infoLabel.Text = string.format("[%s] %s | HP: %d/%d | %d studs", 
+                typeStr, data.Name, math.floor(data.Humanoid.Health), math.floor(data.Humanoid.MaxHealth), math.floor(dist))
+            
+            infoLabel.Parent = card
+        end
+    end
+end
+refreshPlrBtn.MouseButton1Click:Connect(updatePlayerList)
+
+-- ==================== ESP SYSTEM (UI-BASED) ====================
 local function isBot(model)
     return Players:GetPlayerFromCharacter(model) == nil
 end
 
-local function colorFor(model)
-    return isBot(model) and BOT_COLOR or PLAYER_COLOR
-end
+local function addESP(model)
+    if targets[model] then return end
+    if model == LocalPlayer.Character then return end
+    
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    local root = model:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then return end
 
-local function isSameTeam(model)
-    if not state.TeamCheck then return false end
-    local plr = Players:GetPlayerFromCharacter(model)
-    if not plr or not LocalPlayer.Team then return false end
-    return plr.Team == LocalPlayer.Team
-end
+    local col = isBot(model) and BOT_COLOR or PLAYER_COLOR
 
-local espGui = Instance.new("ScreenGui")
-espGui.Name = "ProFirstESP"
-espGui.ResetOnSpawn = false
-espGui.IgnoreGuiInset = true
-espGui.DisplayOrder = 10
-espGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-local function isTarget(model)
-    if not model or not model:IsA("Model") then return false end
-    if model == LocalPlayer.Character then return false end
-    if isSameTeam(model) then return false end
-    return model:FindFirstChildOfClass("Humanoid") ~= nil
-end
-
--- Delta ยิงเมาส์: ใช้ VirtualInputManager (ฟรีใน Delta)
-local function deltaClick()
+    -- Highlight
+    local hl = nil
     pcall(function()
-        VirtualInputService:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        task.delay(0.05, function()
-            pcall(function()
-                VirtualInputService:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            end)
-        end)
+        hl = Instance.new("Highlight")
+        hl.Adornee = model
+        hl.FillColor = col
+        hl.OutlineColor = col
+        hl.FillTransparency = 0.5
+        hl.Parent = model
     end)
-end
 
---==================================================
--- FOV CIRCLE
---==================================================
-
-local function createFOV()
-    if fovCircle then fovCircle:Destroy() end
-    local f = Instance.new("Frame")
-    f.Name = "FOVCircle"
-    f.AnchorPoint = Vector2.new(0.5, 0.5)
-    f.Position = UDim2.fromScale(0.5, 0.5)
-    f.Size = UDim2.fromOffset(state.AimFOV * 2, state.AimFOV * 2)
-    f.BackgroundTransparency = 1
-    f.Visible = false
-    f.Parent = espGui
-    Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
-    local s = Instance.new("UIStroke")
-    s.Color = BOT_COLOR; s.Thickness = 1; s.Transparency = 0.5; s.Parent = f
-    fovCircle = f
-end
-
---==================================================
--- TARGET ENTRY
---==================================================
-
-local function removeTarget(model)
-    local e = targets[model]
-    if not e then return end
-    if lockedTarget == model then lockedTarget = nil end
-    targets[model] = nil
-    for _, obj in pairs(e) do pcall(function() obj:Destroy() end) end
-end
-
-local function deferRemove(model)
-    if pendingRemoval[model] then return end
-    pendingRemoval[model] = true
-    task.defer(function()
-        pendingRemoval[model] = nil
-        if targets[model] then removeTarget(model) end
-    end)
-end
-
-local function addTarget(model)
-    if not running or not state.Master then return end
-    if not isTarget(model) or targets[model] or pendingRemoval[model] then return end
-
-    local col = colorFor(model)
-
-    local box = Instance.new("Frame")
-    box.Name = "Box"; box.BackgroundTransparency = 1
-    box.BorderSizePixel = 0; box.Visible = false; box.Parent = espGui
-    local st = Instance.new("UIStroke")
-    st.Color = col; st.Thickness = 1.5; st.Parent = box
-
-    local tr = Instance.new("Frame")
-    tr.Name = "Tracer"; tr.BackgroundColor3 = col; tr.BorderSizePixel = 0
-    tr.AnchorPoint = Vector2.new(0.5, 0.5); tr.Visible = false; tr.Parent = espGui
-
+    -- Text Label
     local lb = Instance.new("TextLabel")
-    lb.Name = "Distance"; lb.BackgroundTransparency = 1
-    lb.TextColor3 = col; lb.TextStrokeTransparency = 0
-    lb.Font = Enum.Font.GothamBold; lb.TextSize = 13
-    lb.Size = UDim2.fromOffset(150, 16)
-    lb.AnchorPoint = Vector2.new(0.5, 1); lb.Visible = false; lb.Parent = espGui
+    lb.BackgroundTransparency = 1
+    lb.TextColor3 = col
+    lb.TextStrokeTransparency = 0
+    lb.Font = Enum.Font.GothamBold
+    lb.TextSize = 11
+    lb.Size = UDim2.fromOffset(200, 20)
+    lb.AnchorPoint = Vector2.new(0.5, 1)
+    lb.Parent = mainGui
 
-    local nl = Instance.new("TextLabel")
-    nl.Name = "NameTag"; nl.BackgroundTransparency = 1
-    nl.TextColor3 = Color3.new(1, 1, 1); nl.TextStrokeTransparency = 0
-    nl.Font = Enum.Font.GothamBold; nl.TextSize = 12
-    nl.Size = UDim2.fromOffset(170, 14)
-    nl.AnchorPoint = Vector2.new(0.5, 0); nl.Visible = false; nl.Parent = espGui
+    -- 2D Box (ใช้ Roblox Frame)
+    local boxFrame = Instance.new("Frame")
+    boxFrame.BackgroundTransparency = 1
+    boxFrame.Visible = false
+    boxFrame.Parent = mainGui
+
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Color = col
+    boxStroke.Thickness = 1.5
+    boxStroke.Parent = boxFrame
+
+    -- Tracer Line (ใช้ Roblox Frame)
+    local lineFrame = Instance.new("Frame")
+    lineFrame.BackgroundColor3 = col
+    lineFrame.BorderSizePixel = 0
+    lineFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    lineFrame.Visible = false
+    lineFrame.Parent = mainGui
+
     local plr = Players:GetPlayerFromCharacter(model)
-    nl.Text = plr and plr.Name or model.Name
+    local nameTxt = plr and plr.Name or model.Name
 
-    local hb = Instance.new("Frame")
-    hb.Name = "HPBack"; hb.BackgroundColor3 = Color3.new(0, 0, 0)
-    hb.BackgroundTransparency = 0.4; hb.BorderSizePixel = 0
-    hb.Visible = false; hb.Parent = espGui
-
-    local hf = Instance.new("Frame")
-    hf.Name = "HPFill"; hf.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
-    hf.BorderSizePixel = 0; hf.Parent = hb
-
-    targets[model] = { Box = box, Tracer = tr, Label = lb, NameLabel = nl, HPBack = hb, HPFill = hf }
+    targets[model] = {
+        Highlight = hl,
+        Label = lb,
+        Box = boxFrame,
+        Line = lineFrame,
+        Humanoid = hum,
+        RootPart = root,
+        Name = nameTxt
+    }
 end
 
-local function syncHighlight(model, e)
-    if state.Highlight and (not e.Highlight or e.Highlight.Parent == nil) then
-        e.Highlight = nil
-        local ok, h = pcall(function()
-            local hl = Instance.new("Highlight")
-            hl.Name = "ProFirstHL"; hl.Adornee = model
-            hl.FillColor = colorFor(model); hl.OutlineColor = colorFor(model)
-            hl.FillTransparency = FILL_TRANSPARENCY; hl.OutlineTransparency = 0
-            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            hl.Parent = model
-            return hl
-        end)
-        if ok then e.Highlight = h end
-    elseif state.Highlight and e.Highlight then
-        e.Highlight.FillColor = colorFor(model)
-        e.Highlight.OutlineColor = colorFor(model)
-        e.Highlight.Adornee = model
-    elseif not state.Highlight and e.Highlight then
-        pcall(function() e.Highlight:Destroy() end)
-        e.Highlight = nil
+local function removeESP(model)
+    if targets[model] then
+        pcall(function() if targets[model].Highlight then targets[model].Highlight:Destroy() end end)
+        pcall(function() if targets[model].Label then targets[model].Label:Destroy() end end)
+        pcall(function() if targets[model].Box then targets[model].Box:Destroy() end end)
+        pcall(function() if targets[model].Line then targets[model].Line:Destroy() end end)
+        targets[model] = nil
     end
 end
 
-local function clearAll()
-    for model in pairs(targets) do removeTarget(model) end
-    table.clear(pendingRemoval)
-    lockedTarget = nil
-end
-
-local function scanAll()
-    if not running or not state.Master then return end
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("Humanoid") and obj.Parent then addTarget(obj.Parent) end
-        end
-    end)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        local ch = plr.Character
-        if ch and ch:FindFirstChildOfClass("Humanoid") then addTarget(ch) end
-    end
-end
-
---==================================================
--- EVENTS
---==================================================
-
-connect(Workspace.DescendantAdded, function(obj)
-    if not running or not state.Master then return end
-    if obj:IsA("Humanoid") then
-        task.defer(function() if obj.Parent then addTarget(obj.Parent) end end)
-    elseif obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
-        task.defer(function() addTarget(obj) end)
-    end
-end)
-
-connect(Workspace.DescendantRemoving, function(obj)
-    if obj:IsA("Humanoid") then
-        local p = obj.Parent
-        if p then deferRemove(p) end
-    elseif obj:IsA("Model") and targets[obj] then
-        deferRemove(obj)
-    end
-end)
-
-local function hookPlayer(plr)
-    if plr == LocalPlayer then return end
-    connect(plr.CharacterAdded, function(ch)
-        task.defer(function()
-            task.wait(0.25)
-            if running and state.Master and ch then
-                pcall(function() ch:WaitForChild("Humanoid", 5) end)
-                addTarget(ch)
-            end
-        end)
-    end)
-end
-
-connect(Players.PlayerAdded, hookPlayer)
-for _, plr in ipairs(Players:GetPlayers()) do hookPlayer(plr) end
-
-connect(LocalPlayer.CharacterAdded, function()
-    task.defer(function()
-        if running and state.Master then task.wait(0.3) scanAll() end
-    end)
-end)
-
--- AUTO RE-SCANNER
-task.spawn(function()
-    while running do
-        task.wait(SCAN_INTERVAL)
-        if running and state.Master and state.AutoScan then
-            scanAll()
-            for _, child in ipairs(espGui:GetChildren()) do
-                local used = false
-                for _, e in pairs(targets) do
-                    for _, v in pairs(e) do
-                        if v == child then used = true break end
-                    end
-                    if used then break end
-                end
-                if not used and child.Name ~= "FOVCircle" then
-                    pcall(function() child:Destroy() end)
-                end
-            end
+local function scan()
+    if not espEnabled then return end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Humanoid") and obj.Parent then
+            addESP(obj.Parent)
         end
     end
-end)
-
---==================================================
--- AIM
---==================================================
-
-local function getAimPart(model)
-    return model:FindFirstChild(state.AimPart)
-        or model:FindFirstChild("HumanoidRootPart")
-        or model:FindFirstChild("Head")
 end
 
-local function findClosestTarget()
-    local cam = Workspace.CurrentCamera
-    if not cam then return nil end
-    local center = cam.ViewportSize / 2
-    local best, bd = nil, state.AimFOV
-    for model in pairs(targets) do
-        local hum = model:FindFirstChildOfClass("Humanoid")
-        local part = getAimPart(model)
-        if hum and hum.Health > 0 and part then
-            local sp, on = cam:WorldToViewportPoint(part.Position)
-            if on and sp.Z > 0 then
-                local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                if d < bd and (cam.CFrame.Position - part.Position).Magnitude <= MAX_DISTANCE then
-                    best, bd = model, d
-                end
-            end
+renderConnection = RunService.RenderStepped:Connect(function()
+    if not espEnabled then
+        for _, data in pairs(targets) do
+            if data.Label then data.Label.Visible = false end
+            if data.Box then data.Box.Visible = false end
+            if data.Line then data.Line.Visible = false end
+            if data.Highlight then data.Highlight.Enabled = false end
         end
+        return
     end
-    return best
-end
 
-connect(UserInputService.InputBegan, function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.Q then
-        if lockedTarget then
-            lockedTarget = nil
-            pcall(function() Fluent:Notify({ Title = "ProFirst", Content = "ปลดล็อกเป้าแล้ว", Duration = 2 }) end)
-        else
-            lockedTarget = findClosestTarget()
-            pcall(function()
-                if lockedTarget then
-                    local plr = Players:GetPlayerFromCharacter(lockedTarget)
-                    Fluent:Notify({
-                        Title = "ProFirst",
-                        Content = "ล็อกเป้า: " .. (plr and plr.Name or lockedTarget.Name),
-                        Duration = 2
-                    })
-                end
-            end)
-        end
-    end
-end)
-
---==================================================
--- RENDER LOOP
---==================================================
-
-local function hide(e)
-    e.Box.Visible = false; e.Tracer.Visible = false; e.Label.Visible = false
-    if e.NameLabel then e.NameLabel.Visible = false end
-    if e.HPBack then e.HPBack.Visible = false end
-end
-
-connect(RunService.RenderStepped, function(dt)
-    if not running or not state.Master then return end
     local cam = Workspace.CurrentCamera
     if not cam then return end
+    local viewportSize = cam.ViewportSize
+    local bottomCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y)
 
-    local vp = cam.ViewportSize
-    local sc = vp / 2
-    local org = Vector2.new(vp.X / 2, vp.Y)
-    local cp = cam.CFrame.Position
-
-    if fovCircle then
-        fovCircle.Visible = state.LockAim and state.ShowFOV
-        fovCircle.Size = UDim2.fromOffset(state.AimFOV * 2, state.AimFOV * 2)
-    end
-
-    if lockedTarget then
-        local h = lockedTarget:FindFirstChildOfClass("Humanoid")
-        if not h or h.Health <= 0 or not getAimPart(lockedTarget) then
-            lockedTarget = nil
-        end
-    end
-
-    for model, e in pairs(targets) do
-        local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
-        local hum = model:FindFirstChildOfClass("Humanoid")
-
-        if not root or not hum then
-            deferRemove(model)
+    for model, data in pairs(targets) do
+        if not model or not model.Parent or data.Humanoid.Health <= 0 then
+            removeESP(model)
         else
-            syncHighlight(model, e)
-            if hum.Health <= 0 then
-                hide(e)
+            if data.Highlight then data.Highlight.Enabled = true end
+            local root = data.RootPart
+            local vec, onScreen = cam:WorldToViewportPoint(root.Position)
+
+            if onScreen then
+                local dist = (cam.CFrame.Position - root.Position).Magnitude
+                local sizeY = math.clamp(2500 / dist, 12, 600)
+                local sizeX = sizeY * 0.60
+
+                -- 1. Box
+                data.Box.Visible = true
+                data.Box.Size = UDim2.fromOffset(sizeX, sizeY)
+                data.Box.Position = UDim2.fromOffset(vec.X - (sizeX / 2), vec.Y - (sizeY / 2))
+
+                -- 2. Label
+                data.Label.Visible = true
+                data.Label.Position = UDim2.fromOffset(vec.X, vec.Y - (sizeY / 2) - 5)
+                data.Label.Text = string.format("%s (%d studs)", data.Name, math.floor(dist))
+
+                -- 3. Line (Tracer)
+                local targetPos = Vector2.new(vec.X, vec.Y + (sizeY / 2))
+                local distance = (bottomCenter - targetPos).Magnitude
+                local center = (bottomCenter + targetPos) / 2
+                local angle = math.deg(math.atan2(targetPos.Y - bottomCenter.Y, targetPos.X - bottomCenter.X))
+
+                data.Line.Visible = true
+                data.Line.Size = UDim2.fromOffset(distance, 1.5)
+                data.Line.Position = UDim2.fromOffset(center.X, center.Y)
+                data.Line.Rotation = angle
             else
-                local studs = (cp - root.Position).Magnitude
-                if studs > MAX_DISTANCE then
-                    hide(e)
-                else
-                    pcall(function()
-                        local cf, size = model:GetBoundingBox()
-                        local ctr, on = cam:WorldToViewportPoint(cf.Position)
-                        local topP = cam:WorldToViewportPoint(cf.Position + Vector3.new(0, size.Y / 2, 0))
-                        local botP = cam:WorldToViewportPoint(cf.Position - Vector3.new(0, size.Y / 2, 0))
-                        local pinned = state.LockNear and studs <= nearDistance and ctr.Z > 0
-
-                        if ctr.Z <= 0 or (not pinned and not on) then
-                            hide(e)
-                        else
-                            local h = math.abs(botP.Y - topP.Y)
-                            local cx, cy = ctr.X, ctr.Y
-                            if pinned then cx, cy = sc.X, sc.Y; h = math.min(h, vp.Y * 0.5) end
-                            local w = h * 0.6
-                            local col = colorFor(model)
-
-                            e.Box.Visible = state.Box
-                            e.Box.Position = UDim2.fromOffset(cx - w / 2, cy - h / 2)
-                            e.Box.Size = UDim2.fromOffset(w, h)
-
-                            if state.Tracer then
-                                local fy = pinned and (cy + h / 2) or botP.Y
-                                local fx = pinned and cx or botP.X
-                                local tgt = Vector2.new(fx, fy)
-                                local dl = tgt - org
-                                e.Tracer.Visible = true
-                                e.Tracer.Size = UDim2.fromOffset(dl.Magnitude, 1.5)
-                                e.Tracer.Position = UDim2.fromOffset((org.X + tgt.X) / 2, (org.Y + tgt.Y) / 2)
-                                e.Tracer.Rotation = math.deg(math.atan2(dl.Y, dl.X))
-                            else
-                                e.Tracer.Visible = false
-                            end
-
-                            if state.Distance then
-                                e.Label.Visible = true
-                                e.Label.TextColor3 = col
-                                e.Label.Text = string.format("%s%d studs",
-                                    isBot(model) and "[BOT] " or "[P] ",
-                                    math.floor(studs + 0.5))
-                                e.Label.Position = UDim2.fromOffset(cx, cy - h / 2 - 2)
-                            else
-                                e.Label.Visible = false
-                            end
-
-                            if state.NameTag and e.NameLabel then
-                                local plr = Players:GetPlayerFromCharacter(model)
-                                e.NameLabel.Text = plr and plr.Name or model.Name
-                                e.NameLabel.Visible = true
-                                e.NameLabel.Position = UDim2.fromOffset(cx, cy + h / 2 + 2)
-                            elseif e.NameLabel then
-                                e.NameLabel.Visible = false
-                            end
-
-                            if state.HealthBar and e.HPBack and e.HPFill then
-                                local r = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                                e.HPBack.Visible = true
-                                e.HPBack.Position = UDim2.fromOffset(cx - w / 2 - 8, cy - h / 2)
-                                e.HPBack.Size = UDim2.fromOffset(4, h)
-                                e.HPFill.Size = UDim2.fromScale(1, r)
-                                e.HPFill.Position = UDim2.fromScale(0, 1 - r)
-                                e.HPFill.BackgroundColor3 = Color3.fromRGB(
-                                    math.floor(255 * (1 - r)), math.floor(255 * r), 0)
-                            elseif e.HPBack then
-                                e.HPBack.Visible = false
-                            end
-                        end
-                    end)
-                end
-            end
-        end
-    end
-
-    -- AIM LOCK (Delta: หมุน CFrame ตรงๆ ไม่ต้องง้อ MouseOffset)
-    if state.LockAim and lockedTarget then
-        local part = getAimPart(lockedTarget)
-        if part then
-            local sp = cam:WorldToViewportPoint(part.Position)
-            if sp.Z > 0 then
-                local tp = Vector2.new(sp.X, sp.Y)
-                local c2 = vp / 2
-                local alpha = math.clamp(state.AimSmooth * dt, 0, 1)
-                local goalCF = CFrame.lookAt(cam.CFrame.Position, part.Position)
-                cam.CFrame = cam.CFrame:Lerp(goalCF, alpha)
-
-                if state.TriggerBot then
-                    local d = (tp - c2).Magnitude
-                    if d < 14 and (os.clock() - lastShot) >= state.TriggerDelay then
-                        lastShot = os.clock()
-                        deltaClick()
-                    end
-                end
+                data.Label.Visible = false
+                data.Box.Visible = false
+                data.Line.Visible = false
             end
         end
     end
 end)
 
---==================================================
--- LOAD FLUENT (Delta: หลายตัวบล็อก HttpGet — fallback หน้าต่างเอง)
---==================================================
-
-local function loadFluent()
-    local ok, result = pcall(function()
-        local src = game:HttpGet(
-            "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua", true)
-        assert(type(src) == "string" and #src > 0)
-        local fn, err = loadstring(src)
-        assert(fn, err)
-        return fn()
-    end)
-    return ok and result or nil
-end
-
-Fluent = loadFluent()
-if not Fluent then
-    warn("[ProFirst] Delta บล็อก Fluent — ใช้ GUI สำรอง")
-end
-
---==================================================
--- WINDOW + UI (มี/ไม่มี Fluent ก็รันได้)
---==================================================
-
-if Fluent then
-    local ok, res = pcall(function()
-        return Fluent:CreateWindow({
-            Title = "ProFirst | Delta Edition v5.2",
-            SubTitle = "บอทเขียว / ผู้เล่นแดง + Lock Aim",
-            TabWidth = 160, Size = UDim2.fromOffset(560, 460),
-            Acrylic = false, Theme = "Dark",
-            MinimizeKey = Enum.KeyCode.LeftControl
-        })
-    end)
-    if ok and res then Window = res end
-end
-
-local function notify(title, msg, dur)
-    if Fluent then
-        pcall(function() Fluent:Notify({ Title = title, Content = msg, Duration = dur or 3 }) end)
+toggleBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    if espEnabled then
+        toggleBtn.Text = "ON"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
+        scan()
     else
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title, Text = msg, Duration = dur or 3
-        })
+        toggleBtn.Text = "OFF"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
     end
-end
+end)
 
-if Window then
-    local MainTab     = Window:AddTab({ Title = "หน้าหลัก", Icon = "eye" })
-    local AimTab      = Window:AddTab({ Title = "เล็งเป้า", Icon = "crosshair" })
-    local SettingsTab = Window:AddTab({ Title = "ตั้งค่า", Icon = "settings" })
-
-    MainTab:AddParagraph({
-        Title = "ProFirst Delta Edition",
-        Content = "บอท=เขียว | ผู้เล่น=แดง | 2500 studs | Q=ล็อก | Delta-ready"
-    })
-
-    local mt = MainTab:AddToggle("ProFirstMaster", {
-        Title = "เปิด/ปิดระบบทั้งหมด", Description = "เปิดเพื่อเริ่มแสดงผล", Default = false
-    })
-    mt:OnChanged(function(v)
-        if not running then return end
-        state.Master = v
-        if v then scanAll() else clearAll() end
-        notify("ProFirst", v and "เปิดระบบแล้ว" or "ปิดระบบแล้ว")
-    end)
-
-    local function addOpt(tab, key, t, d)
-        local o = tab:AddToggle("ProFirst" .. key, { Title = t, Description = d, Default = state[key] })
-        o:OnChanged(function(v) state[key] = v end)
+Workspace.DescendantAdded:Connect(function(obj)
+    if espEnabled and obj:IsA("Humanoid") and obj.Parent then
+        task.wait(0.5)
+        addESP(obj.Parent)
     end
+end)
 
-    addOpt(SettingsTab, "Highlight", "Highlight ทะลุกำแพง", "AlwaysOnTop")
-    addOpt(SettingsTab, "Box", "กรอบรอบตัวละคร", "สี่เหลี่ยมล้อมรอบตัว")
-    addOpt(SettingsTab, "Tracer", "เส้นโยงที่พื้น", "ล่างจอ → เท้าเป้า")
-    addOpt(SettingsTab, "Distance", "ระยะห่าง [BOT]/[P]", "หน่วย studs")
-    addOpt(SettingsTab, "NameTag", "ชื่อผู้เล่น", "ใต้กรอบ")
-    addOpt(SettingsTab, "HealthBar", "แถบเลือด", "เขียว→แดง")
-    addOpt(SettingsTab, "LockNear", "ล็อกกรอบกลางจอเมื่อใกล้", "ตามระยะตั้ง")
-    addOpt(SettingsTab, "AutoScan", "สแกนอัตโนมัติ", "ไม่ให้เป้าหาย")
-
-    addOpt(AimTab, "LockAim", "ล็อคเป้า (Q)", "Q=ล็อก/ปลด")
-    addOpt(AimTab, "ShowFOV", "วงกลม FOV", "รอบกลางจอ")
-    addOpt(AimTab, "TriggerBot", "ยิงอัตโนมัติ", "กางเขนบนเป้า=ยิง (VIM)")
-    addOpt(AimTab, "TeamCheck", "ข้ามทีมเดียวกัน", "ไม่ล็อกเพื่อน")
-
-    local ap = AimTab:AddDropdown("ProFirstAimPart", {
-        Title = "จุดเล็ง", Values = { "Head", "HumanoidRootPart" }, Value = state.AimPart
-    })
-    ap:OnChanged(function(v) state.AimPart = v end)
-
-    local sm = AimTab:AddSlider("ProFirstSmooth", {
-        Title = "Smooth", Default = state.AimSmooth, Min = 1, Max = 30, Rounding = 1
-    })
-    sm:OnChanged(function(v) state.AimSmooth = v end)
-
-    local fv = AimTab:AddSlider("ProFirstFOV", {
-        Title = "FOV (px)", Default = state.AimFOV, Min = 50, Max = 600, Rounding = 0
-    })
-    fv:OnChanged(function(v) state.AimFOV = v end)
-
-    local dl = AimTab:AddSlider("ProFirstDelay", {
-        Title = "หน่วงยิง (ms)", Default = state.TriggerDelay * 1000, Min = 30, Max = 500, Rounding = 0
-    })
-    dl:OnChanged(function(v) state.TriggerDelay = v / 1000 end)
-
-    local nd = SettingsTab:AddSlider("ProFirstNear", {
-        Title = "ระยะใกล้ (studs)", Default = nearDistance, Min = 3, Max = 40, Rounding = 0
-    })
-    nd:OnChanged(function(v) nearDistance = v end)
-
-    local mx = SettingsTab:AddSlider("ProFirstMax", {
-        Title = "ระยะสูงสุด (studs)", Default = MAX_DISTANCE, Min = 100, Max = 2500, Rounding = 0
-    })
-    mx:OnChanged(function(v) MAX_DISTANCE = v end)
-
-    local si = SettingsTab:AddSlider("ProFirstScan", {
-        Title = "สแกนทุก (วินาที)", Default = SCAN_INTERVAL, Min = 1, Max = 10, Rounding = 0
-    })
-    si:OnChanged(function(v) SCAN_INTERVAL = math.max(1, v) end)
-
-    MainTab:AddButton({
-        Title = "รีเฟรชทันที", Callback = function()
-            if running then scanAll() notify("ProFirst", "รีเฟรชเสร็จแล้ว") end
-        end
-    })
-
-    MainTab:AddButton({
-        Title = "หยุดทั้งหมด", Callback = function()
-            if not running then return end
-            running = false; state.Master = false; lockedTarget = nil
-            if fovCircle then pcall(function() fovCircle:Destroy() end) fovCircle = nil end
-            clearAll(); disconnectAll(); espGui:Destroy()
-            notify("ProFirst", "หยุดระบบแล้ว", 2)
-            task.delay(0.3, function() if Window then pcall(function() Window:Minimize() end) end end)
-        end
-    })
-
-    createFOV()
-    Window:SelectTab(1)
-else
-    -- ไม่มี Fluent = เปิด auto ใช้ Q ล็อก ตามค่า default
-    state.Master = true
-    scanAll()
-    notify("ProFirst", "Delta mode: เปิด auto, Q=ล็อกเป้า", 5)
-end
-
-notify("ProFirst", "v5.2 Delta โหลดสำเร็จ — บอทเขียว ผู้เล่นแดง", 5)
-print("[ProFirst] v5.2 DELTA loaded")
+scan()
