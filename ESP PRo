@@ -1,7 +1,8 @@
--- ProFirst | SAFE ESP & UI FOR DELTA (Fix Drawing API Error)
+-- ProFirst | ADVANCED ESP & UI MENU FOR DELTA (UPDATED: MINIMIZE, CLOSE & FPS SETTINGS)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
@@ -12,34 +13,39 @@ local BOT_COLOR = Color3.fromRGB(0, 255, 100)
 local PLAYER_COLOR = Color3.fromRGB(255, 40, 40)
 local THEME_DARK = Color3.fromRGB(10, 16, 28)
 local THEME_PANEL = Color3.fromRGB(15, 25, 45)
+local THEME_ACCENT = Color3.fromRGB(0, 180, 255)
 local THEME_NEON = Color3.fromRGB(0, 230, 255)
 
 local espEnabled = true
 local targets = {}
 local renderConnection = nil
 
--- ==================== GUI CONTAINER ====================
-local mainGui = Instance.new("ScreenGui")
-mainGui.Name = "ProFirst_SafeUI"
-mainGui.ResetOnSpawn = false
-mainGui.IgnoreGuiInset = true
+-- Player States
+local currentWalkSpeed = 16
+local currentJumpPower = 50
+local speedEnabled = false
+local jumpEnabled = false
 
-local successParent = pcall(function()
-    mainGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end)
-if not successParent then return end
+-- เช็ค Drawing Library
+local hasDrawing = (type(Drawing) == "table" and type(Drawing.new) == "function")
+
+-- ==================== UI CREATION ====================
+local mainGui = Instance.new("ScreenGui")
+mainGui.Name = "ProFirst_UI"
+mainGui.ResetOnSpawn = false
+mainGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 -- 1. ปุ่มโลโก้ F
 local logoBtn = Instance.new("TextButton")
 logoBtn.Name = "LogoButton"
 logoBtn.Size = UDim2.fromOffset(45, 45)
-logoBtn.Position = UDim2.new(0.5, -22, 0.2, 0)
+logoBtn.Position = UDim2.new(0.5, -22, 0.4, 0)
 logoBtn.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
 logoBtn.Text = "F"
 logoBtn.TextColor3 = Color3.fromRGB(255, 200, 0)
 logoBtn.Font = Enum.Font.FredokaOne
 logoBtn.TextSize = 26
-logoBtn.Visible = false
+logoBtn.AutoButtonColor = false
 logoBtn.Parent = mainGui
 
 local logoCorner = Instance.new("UICorner")
@@ -51,34 +57,36 @@ logoStroke.Color = THEME_NEON
 logoStroke.Thickness = 2
 logoStroke.Parent = logoBtn
 
--- ลากปุ่มโลโก้
-local draggingLogo, dragStartLogo, startPosLogo
+-- ให้ปุ่ม Logo ลากเคลื่อนย้ายได้
+local dragging, dragInput, dragStart, startPos
 logoBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingLogo = true
-        dragStartLogo = input.Position
-        startPosLogo = logoBtn.Position
-    end
-end)
-logoBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingLogo = false
-    end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingLogo and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStartLogo
-        logoBtn.Position = UDim2.new(startPosLogo.X.Scale, startPosLogo.X.Offset + delta.X, startPosLogo.Y.Scale, startPosLogo.Y.Offset + delta.Y)
+        dragging = true
+        dragStart = input.Position
+        startPos = logoBtn.Position
     end
 end)
 
--- 2. หน้าต่างหลัก (Main Frame)
+logoBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        logoBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- 2. หน้าต่างหลัก
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.fromOffset(500, 320)
 mainFrame.Position = UDim2.new(0.5, -250, 0.5, -160)
 mainFrame.BackgroundColor3 = THEME_DARK
-mainFrame.Visible = true
+mainFrame.Visible = false
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = mainGui
 
@@ -91,48 +99,52 @@ mainStroke.Color = THEME_NEON
 mainStroke.Thickness = 2
 mainStroke.Parent = mainFrame
 
--- ปุ่มย่อ (-) และปิด (X)
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Size = UDim2.fromOffset(25, 25)
-minimizeBtn.Position = UDim2.new(1, -60, 0, 8)
-minimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 60, 90)
-minimizeBtn.Text = "-"
-minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minimizeBtn.Font = Enum.Font.GothamBold
-minimizeBtn.TextSize = 16
-minimizeBtn.Parent = mainFrame
+-- ปุ่ม ย่อ (-) และ ปิด (X) ด้านมุมขวาบน
+local topBarControls = Instance.new("Frame")
+topBarControls.Size = UDim2.fromOffset(60, 24)
+topBarControls.Position = UDim2.new(1, -66, 0, 6)
+topBarControls.BackgroundTransparency = 1
+topBarControls.ZIndex = 10
+topBarControls.Parent = mainFrame
+
+local minBtn = Instance.new("TextButton")
+minBtn.Name = "MinBtn"
+minBtn.Size = UDim2.fromOffset(24, 24)
+minBtn.Position = UDim2.fromOffset(0, 0)
+minBtn.BackgroundColor3 = Color3.fromRGB(30, 45, 65)
+minBtn.Text = "-"
+minBtn.TextColor3 = Color3.fromRGB(220, 230, 240)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 16
+minBtn.ZIndex = 11
+minBtn.Parent = topBarControls
 
 local minCorner = Instance.new("UICorner")
-minCorner.CornerRadius = UDim.new(0, 4)
-minCorner.Parent = minimizeBtn
+minCorner.CornerRadius = UDim.new(0, 6)
+minCorner.Parent = minBtn
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.fromOffset(25, 25)
-closeBtn.Position = UDim2.new(1, -30, 0, 8)
+closeBtn.Name = "CloseBtn"
+closeBtn.Size = UDim2.fromOffset(24, 24)
+closeBtn.Position = UDim2.fromOffset(30, 0)
 closeBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 14
-closeBtn.Parent = mainFrame
+closeBtn.TextSize = 13
+closeBtn.ZIndex = 11
+closeBtn.Parent = topBarControls
 
 local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 4)
+closeCorner.CornerRadius = UDim.new(0, 6)
 closeCorner.Parent = closeBtn
 
-minimizeBtn.MouseButton1Click:Connect(function()
+minBtn.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
-    logoBtn.Visible = true
-end)
-
-logoBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = true
-    logoBtn.Visible = false
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
-    logoBtn.Visible = true
 end)
 
 -- Sidebar
@@ -156,9 +168,18 @@ sideLogo.Font = Enum.Font.FredokaOne
 sideLogo.TextSize = 22
 sideLogo.Parent = sidebar
 
+local sideLogoCorner = Instance.new("UICorner")
+sideLogoCorner.CornerRadius = UDim.new(0, 6)
+sideLogoCorner.Parent = sideLogo
+
+local sideLogoStroke = Instance.new("UIStroke")
+sideLogoStroke.Color = THEME_NEON
+sideLogoStroke.Thickness = 1.5
+sideLogoStroke.Parent = sideLogo
+
 local navContainer = Instance.new("Frame")
 navContainer.Size = UDim2.new(1, -10, 1, -55)
-navContainer.Position = UDim2.fromOffset(5, 55)
+navContainer.Position = UDim2.fromOffset(5, 50)
 navContainer.BackgroundTransparency = 1
 navContainer.Parent = sidebar
 
@@ -168,8 +189,8 @@ navLayout.SortOrder = Enum.SortOrder.LayoutOrder
 navLayout.Parent = navContainer
 
 local contentArea = Instance.new("Frame")
-contentArea.Size = UDim2.new(1, -145, 1, -45)
-contentArea.Position = UDim2.fromOffset(140, 40)
+contentArea.Size = UDim2.new(1, -140, 1, -38)
+contentArea.Position = UDim2.fromOffset(135, 32)
 contentArea.BackgroundTransparency = 1
 contentArea.Parent = mainFrame
 
@@ -218,14 +239,58 @@ local function createTabButton(name, iconText, order)
 end
 
 local pageESP = createTabButton("โปรมอง", "🎯", 1)
-local pageSettings = createTabButton("ตั้งค่า", "⚙️", 2)
-local pagePlayer = createTabButton("Player", "👤", 3)
+local pagePlayer = createTabButton("Player", "👤", 2)
+local pageSettings = createTabButton("ตั้งค่า", "⚙️", 3)
+local pageFusion = createTabButton("ฟิวชั่น", "🔄", 4)
+local pageOther = createTabButton("อื่นๆ", "📦", 5)
 
 tabs["โปรมอง"].Btn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
 tabs["โปรมอง"].Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tabs["โปรมอง"].Frame.Visible = true
 
--- ==================== 1. หน้าโปรมอง ====================
+-- ==================== TAB: โปรมอง ====================
+local titleCard = Instance.new("Frame")
+titleCard.Size = UDim2.new(1, 0, 0, 70)
+titleCard.BackgroundColor3 = THEME_PANEL
+titleCard.Parent = pageESP
+
+local tcCorner = Instance.new("UICorner")
+tcCorner.CornerRadius = UDim.new(0, 6)
+tcCorner.Parent = titleCard
+
+local titleText = Instance.new("TextLabel")
+titleText.Text = "⚙️  ProFirst Highlight (Enemy Only)"
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 16
+titleText.TextColor3 = THEME_NEON
+titleText.Position = UDim2.fromOffset(10, 8)
+titleText.Size = UDim2.fromOffset(300, 20)
+titleText.BackgroundTransparency = 1
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleCard
+
+local subText = Instance.new("TextLabel")
+subText.Text = "ไฮไลต์เฉพาะศัตรู/บอท (กรองทีมเดียวกันออก)"
+subText.Font = Enum.Font.Gotham
+subText.TextSize = 11
+subText.TextColor3 = Color3.fromRGB(150, 170, 190)
+subText.Position = UDim2.fromOffset(10, 28)
+subText.Size = UDim2.fromOffset(300, 15)
+subText.BackgroundTransparency = 1
+subText.TextXAlignment = Enum.TextXAlignment.Left
+subText.Parent = titleCard
+
+local statusText = Instance.new("TextLabel")
+statusText.Text = "สถานะ: Highlight เปิดอยู่"
+statusText.Font = Enum.Font.GothamBold
+statusText.TextSize = 12
+statusText.TextColor3 = THEME_NEON
+statusText.Position = UDim2.fromOffset(10, 46)
+statusText.Size = UDim2.fromOffset(300, 18)
+statusText.BackgroundTransparency = 1
+statusText.TextXAlignment = Enum.TextXAlignment.Left
+statusText.Parent = titleCard
+
 local toggleBox = Instance.new("Frame")
 toggleBox.Size = UDim2.new(1, 0, 0, 45)
 toggleBox.BackgroundColor3 = THEME_PANEL
@@ -236,7 +301,7 @@ tbCorner.CornerRadius = UDim.new(0, 6)
 tbCorner.Parent = toggleBox
 
 local tbLabel = Instance.new("TextLabel")
-tbLabel.Text = "🎯 เปิด/ปิด ESP"
+tbLabel.Text = "🎯  เปิด/ปิด Highlight ศัตรู"
 tbLabel.Font = Enum.Font.GothamMedium
 tbLabel.TextSize = 13
 tbLabel.TextColor3 = Color3.fromRGB(220, 230, 240)
@@ -260,280 +325,282 @@ local toggleCorner = Instance.new("UICorner")
 toggleCorner.CornerRadius = UDim.new(0, 13)
 toggleCorner.Parent = toggleBtn
 
--- ==================== 2. หน้าตั้งค่า ====================
-local perfCard = Instance.new("Frame")
-perfCard.Size = UDim2.new(1, 0, 0, 110)
-perfCard.BackgroundColor3 = THEME_PANEL
-perfCard.Parent = pageSettings
+local btnRow = Instance.new("Frame")
+btnRow.Size = UDim2.new(1, 0, 0, 35)
+btnRow.BackgroundTransparency = 1
+btnRow.Parent = pageESP
 
-local pfCorner = Instance.new("UICorner")
-pfCorner.CornerRadius = UDim.new(0, 6)
-pfCorner.Parent = perfCard
+local refreshBtn = Instance.new("TextButton")
+refreshBtn.Size = UDim2.new(0.48, 0, 1, 0)
+refreshBtn.BackgroundColor3 = Color3.fromRGB(0, 110, 180)
+refreshBtn.Text = "🔄 รีเฟรช Highlight"
+refreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshBtn.Font = Enum.Font.GothamBold
+refreshBtn.TextSize = 12
+refreshBtn.Parent = btnRow
 
-local fpsBtn = Instance.new("TextButton")
-fpsBtn.Size = UDim2.new(1, -20, 0, 35)
-fpsBtn.Position = UDim2.fromOffset(10, 15)
-fpsBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 80)
-fpsBtn.Text = "🚀 ปลดล็อก FPS สูงสุด"
-fpsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-fpsBtn.Font = Enum.Font.GothamBold
-fpsBtn.TextSize = 12
-fpsBtn.Parent = perfCard
+local rfCorner = Instance.new("UICorner")
+rfCorner.CornerRadius = UDim.new(0, 6)
+rfCorner.Parent = refreshBtn
 
-fpsBtn.MouseButton1Click:Connect(function()
-    pcall(function()
-        if setfpscap then setfpscap(999) end
-        fpsBtn.Text = "🚀 ปลดล็อก FPS สำเร็จ"
-    end)
-end)
+local clearBtn = Instance.new("TextButton")
+clearBtn.Size = UDim2.new(0.48, 0, 1, 0)
+clearBtn.Position = UDim2.new(0.52, 0, 0, 0)
+clearBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+clearBtn.Text = "🗑️ ล้าง Highlight ทั้งหมด"
+clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+clearBtn.Font = Enum.Font.GothamBold
+clearBtn.TextSize = 12
+clearBtn.Parent = btnRow
 
-local gfxBtn = Instance.new("TextButton")
-gfxBtn.Size = UDim2.new(1, -20, 0, 35)
-gfxBtn.Position = UDim2.fromOffset(10, 60)
-gfxBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 0)
-gfxBtn.Text = "📉 ลดกราฟฟิก (Boost FPS)"
-gfxBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-gfxBtn.Font = Enum.Font.GothamBold
-gfxBtn.TextSize = 12
-gfxBtn.Parent = perfCard
+local clCorner = Instance.new("UICorner")
+clCorner.CornerRadius = UDim.new(0, 6)
+clCorner.Parent = clearBtn
 
-gfxBtn.MouseButton1Click:Connect(function()
-    pcall(function()
-        settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-        for _, v in pairs(Workspace:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.Material = Enum.Material.SmoothPlastic
+-- ==================== TAB: PLAYER ====================
+local speedBox = Instance.new("Frame")
+speedBox.Size = UDim2.new(1, 0, 0, 65)
+speedBox.BackgroundColor3 = THEME_PANEL
+speedBox.Parent = pagePlayer
+
+local spCorner = Instance.new("UICorner")
+spCorner.CornerRadius = UDim.new(0, 6)
+spCorner.Parent = speedBox
+
+local spLabel = Instance.new("TextLabel")
+spLabel.Text = "⚡  ความเร็วการเดิน (WalkSpeed)"
+spLabel.Font = Enum.Font.GothamBold
+spLabel.TextSize = 13
+spLabel.TextColor3 = Color3.fromRGB(220, 230, 240)
+spLabel.Position = UDim2.fromOffset(10, 5)
+spLabel.Size = UDim2.new(0.6, 0, 0, 20)
+spLabel.BackgroundTransparency = 1
+spLabel.TextXAlignment = Enum.TextXAlignment.Left
+spLabel.Parent = speedBox
+
+local speedInput = Instance.new("TextBox")
+speedInput.Size = UDim2.fromOffset(80, 26)
+speedInput.Position = UDim2.fromOffset(10, 30)
+speedInput.BackgroundColor3 = Color3.fromRGB(10, 18, 30)
+speedInput.Text = "32"
+speedInput.TextColor3 = THEME_NEON
+speedInput.Font = Enum.Font.GothamBold
+speedInput.TextSize = 13
+speedInput.ClearTextOnFocus = false
+speedInput.Parent = speedBox
+
+local siCorner = Instance.new("UICorner")
+siCorner.CornerRadius = UDim.new(0, 6)
+siCorner.Parent = speedInput
+
+local speedToggle = Instance.new("TextButton")
+speedToggle.Size = UDim2.fromOffset(80, 26)
+speedToggle.Position = UDim2.new(1, -90, 0.5, -13)
+speedToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+speedToggle.Text = "OFF"
+speedToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedToggle.Font = Enum.Font.GothamBold
+speedToggle.TextSize = 12
+speedToggle.Parent = speedBox
+
+local stCorner = Instance.new("UICorner")
+stCorner.CornerRadius = UDim.new(0, 13)
+stCorner.Parent = speedToggle
+
+local jumpBox = Instance.new("Frame")
+jumpBox.Size = UDim2.new(1, 0, 0, 65)
+jumpBox.BackgroundColor3 = THEME_PANEL
+jumpBox.Parent = pagePlayer
+
+local jpCorner = Instance.new("UICorner")
+jpCorner.CornerRadius = UDim.new(0, 6)
+jpCorner.Parent = jumpBox
+
+local jpLabel = Instance.new("TextLabel")
+jpLabel.Text = "🦘  แรงกระโดด (JumpPower)"
+jpLabel.Font = Enum.Font.GothamBold
+jpLabel.TextSize = 13
+jpLabel.TextColor3 = Color3.fromRGB(220, 230, 240)
+jpLabel.Position = UDim2.fromOffset(10, 5)
+jpLabel.Size = UDim2.new(0.6, 0, 0, 20)
+jpLabel.BackgroundTransparency = 1
+jpLabel.TextXAlignment = Enum.TextXAlignment.Left
+jpLabel.Parent = jumpBox
+
+local jumpInput = Instance.new("TextBox")
+jumpInput.Size = UDim2.fromOffset(80, 26)
+jumpInput.Position = UDim2.fromOffset(10, 30)
+jumpInput.BackgroundColor3 = Color3.fromRGB(10, 18, 30)
+jumpInput.Text = "100"
+jumpInput.TextColor3 = THEME_NEON
+jumpInput.Font = Enum.Font.GothamBold
+jumpInput.TextSize = 13
+jumpInput.ClearTextOnFocus = false
+jumpInput.Parent = jumpBox
+
+local jiCorner = Instance.new("UICorner")
+jiCorner.CornerRadius = UDim.new(0, 6)
+jiCorner.Parent = jumpInput
+
+local jumpToggle = Instance.new("TextButton")
+jumpToggle.Size = UDim2.fromOffset(80, 26)
+jumpToggle.Position = UDim2.new(1, -90, 0.5, -13)
+jumpToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+jumpToggle.Text = "OFF"
+jumpToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+jumpToggle.Font = Enum.Font.GothamBold
+jumpToggle.TextSize = 12
+jumpToggle.Parent = jumpBox
+
+local jtCorner = Instance.new("UICorner")
+jtCorner.CornerRadius = UDim.new(0, 13)
+jtCorner.Parent = jumpToggle
+
+-- ==================== TAB: การตั้งค่า (รวมตั้งค่า FPS) ====================
+-- การ์ด FPS Settings
+local fpsCard = Instance.new("Frame")
+fpsCard.Size = UDim2.new(1, 0, 0, 75)
+fpsCard.BackgroundColor3 = THEME_PANEL
+fpsCard.Parent = pageSettings
+
+local fpsCorner = Instance.new("UICorner")
+fpsCorner.CornerRadius = UDim.new(0, 6)
+fpsCorner.Parent = fpsCard
+
+local fpsTitle = Instance.new("TextLabel")
+fpsTitle.Text = "⚡  ตั้งค่า Frame Rate (FPS Cap)"
+fpsTitle.Font = Enum.Font.GothamBold
+fpsTitle.TextSize = 13
+fpsTitle.TextColor3 = Color3.fromRGB(220, 230, 240)
+fpsTitle.Position = UDim2.fromOffset(10, 8)
+fpsTitle.Size = UDim2.new(1, -20, 0, 20)
+fpsTitle.BackgroundTransparency = 1
+fpsTitle.TextXAlignment = Enum.TextXAlignment.Left
+fpsTitle.Parent = fpsCard
+
+local fpsRow = Instance.new("Frame")
+fpsRow.Size = UDim2.new(1, -20, 0, 28)
+fpsRow.Position = UDim2.fromOffset(10, 35)
+fpsRow.BackgroundTransparency = 1
+fpsRow.Parent = fpsCard
+
+local fpsList = Instance.new("UIListLayout")
+fpsList.FillDirection = Enum.FillDirection.Horizontal
+fpsList.Padding = UDim.new(0, 6)
+fpsList.SortOrder = Enum.SortOrder.LayoutOrder
+fpsList.Parent = fpsRow
+
+local fpsCaps = {
+    {name = "30 FPS", val = 30},
+    {name = "60 FPS", val = 60},
+    {name = "120 FPS", val = 120},
+    {name = "Max (999)", val = 999}
+}
+
+local function applyFPS(cap)
+    if setfpscap then
+        setfpscap(cap)
+    end
+end
+
+for _, item in ipairs(fpsCaps) do
+    local fBtn = Instance.new("TextButton")
+    fBtn.Size = UDim2.new(0.23, 0, 1, 0)
+    fBtn.BackgroundColor3 = Color3.fromRGB(10, 20, 35)
+    fBtn.Text = item.name
+    fBtn.TextColor3 = Color3.fromRGB(200, 220, 240)
+    fBtn.Font = Enum.Font.GothamMedium
+    fBtn.TextSize = 11
+    fBtn.Parent = fpsRow
+
+    local fCorner = Instance.new("UICorner")
+    fCorner.CornerRadius = UDim.new(0, 5)
+    fCorner.Parent = fBtn
+
+    fBtn.MouseButton1Click:Connect(function()
+        for _, c in ipairs(fpsRow:GetChildren()) do
+            if c:IsA("TextButton") then
+                c.BackgroundColor3 = Color3.fromRGB(10, 20, 35)
+                c.TextColor3 = Color3.fromRGB(200, 220, 240)
             end
         end
-        gfxBtn.Text = "📉 ลดกราฟฟิกสำเร็จ"
+        fBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+        fBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        applyFPS(item.val)
     end)
+end
+
+-- การ์ดตัวเลือกระบบ
+local setCard = Instance.new("Frame")
+setCard.Size = UDim2.new(1, 0, 0, 75)
+setCard.BackgroundColor3 = THEME_PANEL
+setCard.Parent = pageSettings
+
+local scCorner = Instance.new("UICorner")
+scCorner.CornerRadius = UDim.new(0, 6)
+scCorner.Parent = setCard
+
+local setLabel = Instance.new("TextLabel")
+setLabel.Text = "⚙️  การจัดการหน้าต่างและระบบ"
+setLabel.Font = Enum.Font.GothamBold
+setLabel.TextSize = 13
+setLabel.TextColor3 = Color3.fromRGB(220, 230, 240)
+setLabel.Position = UDim2.fromOffset(10, 8)
+setLabel.Size = UDim2.new(1, -20, 0, 20)
+setLabel.BackgroundTransparency = 1
+setLabel.TextXAlignment = Enum.TextXAlignment.Left
+setLabel.Parent = setCard
+
+local setBtnRow = Instance.new("Frame")
+setBtnRow.Size = UDim2.new(1, -20, 0, 30)
+setBtnRow.Position = UDim2.fromOffset(10, 34)
+setBtnRow.BackgroundTransparency = 1
+setBtnRow.Parent = setCard
+
+local hideUiBtn = Instance.new("TextButton")
+hideUiBtn.Size = UDim2.new(0.48, 0, 1, 0)
+hideUiBtn.BackgroundColor3 = Color3.fromRGB(0, 110, 180)
+hideUiBtn.Text = "👁️ ซ่อนหน้าต่าง"
+hideUiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hideUiBtn.Font = Enum.Font.GothamBold
+hideUiBtn.TextSize = 11
+hideUiBtn.Parent = setBtnRow
+
+local huiCorner = Instance.new("UICorner")
+huiCorner.CornerRadius = UDim.new(0, 6)
+huiCorner.Parent = hideUiBtn
+
+local stopSysBtn = Instance.new("TextButton")
+stopSysBtn.Size = UDim2.new(0.48, 0, 1, 0)
+stopSysBtn.Position = UDim2.new(0.52, 0, 0, 0)
+stopSysBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+stopSysBtn.Text = "🛑 หยุดระบบทั้งหมด"
+stopSysBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopSysBtn.Font = Enum.Font.GothamBold
+stopSysBtn.TextSize = 11
+stopSysBtn.Parent = setBtnRow
+
+local stopCorner = Instance.new("UICorner")
+stopCorner.CornerRadius = UDim.new(0, 6)
+stopCorner.Parent = stopSysBtn
+
+-- ==================== TOGGLE LOGIC ====================
+local function toggleUI()
+    mainFrame.Visible = not mainFrame.Visible
+end
+
+logoBtn.MouseButton1Click:Connect(toggleUI)
+hideUiBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
 end)
 
--- ==================== 3. หน้า PLAYER ====================
-local playerListContainer = Instance.new("ScrollingFrame")
-playerListContainer.Size = UDim2.new(1, 0, 1, -40)
-playerListContainer.BackgroundTransparency = 1
-playerListContainer.ScrollBarThickness = 2
-playerListContainer.Parent = pagePlayer
-
-local plLayout = Instance.new("UIListLayout")
-plLayout.Padding = UDim.new(0, 6)
-plLayout.Parent = playerListContainer
-
-local refreshPlrBtn = Instance.new("TextButton")
-refreshPlrBtn.Size = UDim2.new(1, 0, 0, 32)
-refreshPlrBtn.Position = UDim2.new(0, 0, 1, -35)
-refreshPlrBtn.BackgroundColor3 = Color3.fromRGB(0, 110, 180)
-refreshPlrBtn.Text = "🔄 อัปเดตข้อมูลผู้เล่น"
-refreshPlrBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-refreshPlrBtn.Font = Enum.Font.GothamBold
-refreshPlrBtn.TextSize = 12
-refreshPlrBtn.Parent = pagePlayer
-
-local function updatePlayerList()
-    for _, child in ipairs(playerListContainer:GetChildren()) do
-        if child:IsA("Frame") then child:Destroy() end
-    end
-
-    for model, data in pairs(targets) do
-        if model and model.Parent and data.Humanoid then
-            local card = Instance.new("Frame")
-            card.Size = UDim2.new(1, -5, 0, 45)
-            card.BackgroundColor3 = THEME_PANEL
-            card.Parent = playerListContainer
-
-            local cc = Instance.new("UICorner")
-            cc.CornerRadius = UDim.new(0, 6)
-            cc.Parent = card
-
-            local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -10, 1, 0)
-            infoLabel.Position = UDim2.fromOffset(8, 0)
-            infoLabel.BackgroundTransparency = 1
-            infoLabel.Font = Enum.Font.GothamMedium
-            infoLabel.TextSize = 11
-            infoLabel.TextColor3 = Color3.fromRGB(230, 240, 255)
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-            
-            local dist = 0
-            pcall(function()
-                dist = (Workspace.CurrentCamera.CFrame.Position - data.RootPart.Position).Magnitude
-            end)
-
-            local typeStr = Players:GetPlayerFromCharacter(model) and "Player" or "Bot"
-            infoLabel.Text = string.format("[%s] %s | HP: %d/%d | %d studs", 
-                typeStr, data.Name, math.floor(data.Humanoid.Health), math.floor(data.Humanoid.MaxHealth), math.floor(dist))
-            
-            infoLabel.Parent = card
-        end
-    end
-end
-refreshPlrBtn.MouseButton1Click:Connect(updatePlayerList)
-
--- ==================== ESP SYSTEM (UI-BASED) ====================
-local function isBot(model)
-    return Players:GetPlayerFromCharacter(model) == nil
-end
-
-local function addESP(model)
-    if targets[model] then return end
-    if model == LocalPlayer.Character then return end
-    
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    local root = model:FindFirstChild("HumanoidRootPart")
-    if not hum or not root then return end
-
-    local col = isBot(model) and BOT_COLOR or PLAYER_COLOR
-
-    -- Highlight
-    local hl = nil
-    pcall(function()
-        hl = Instance.new("Highlight")
-        hl.Adornee = model
-        hl.FillColor = col
-        hl.OutlineColor = col
-        hl.FillTransparency = 0.5
-        hl.Parent = model
-    end)
-
-    -- Text Label
-    local lb = Instance.new("TextLabel")
-    lb.BackgroundTransparency = 1
-    lb.TextColor3 = col
-    lb.TextStrokeTransparency = 0
-    lb.Font = Enum.Font.GothamBold
-    lb.TextSize = 11
-    lb.Size = UDim2.fromOffset(200, 20)
-    lb.AnchorPoint = Vector2.new(0.5, 1)
-    lb.Parent = mainGui
-
-    -- 2D Box (ใช้ Roblox Frame)
-    local boxFrame = Instance.new("Frame")
-    boxFrame.BackgroundTransparency = 1
-    boxFrame.Visible = false
-    boxFrame.Parent = mainGui
-
-    local boxStroke = Instance.new("UIStroke")
-    boxStroke.Color = col
-    boxStroke.Thickness = 1.5
-    boxStroke.Parent = boxFrame
-
-    -- Tracer Line (ใช้ Roblox Frame)
-    local lineFrame = Instance.new("Frame")
-    lineFrame.BackgroundColor3 = col
-    lineFrame.BorderSizePixel = 0
-    lineFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    lineFrame.Visible = false
-    lineFrame.Parent = mainGui
-
-    local plr = Players:GetPlayerFromCharacter(model)
-    local nameTxt = plr and plr.Name or model.Name
-
-    targets[model] = {
-        Highlight = hl,
-        Label = lb,
-        Box = boxFrame,
-        Line = lineFrame,
-        Humanoid = hum,
-        RootPart = root,
-        Name = nameTxt
-    }
-end
-
-local function removeESP(model)
-    if targets[model] then
-        pcall(function() if targets[model].Highlight then targets[model].Highlight:Destroy() end end)
-        pcall(function() if targets[model].Label then targets[model].Label:Destroy() end end)
-        pcall(function() if targets[model].Box then targets[model].Box:Destroy() end end)
-        pcall(function() if targets[model].Line then targets[model].Line:Destroy() end end)
-        targets[model] = nil
-    end
-end
-
-local function scan()
-    if not espEnabled then return end
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Humanoid") and obj.Parent then
-            addESP(obj.Parent)
-        end
-    end
-end
-
-renderConnection = RunService.RenderStepped:Connect(function()
-    if not espEnabled then
-        for _, data in pairs(targets) do
-            if data.Label then data.Label.Visible = false end
-            if data.Box then data.Box.Visible = false end
-            if data.Line then data.Line.Visible = false end
-            if data.Highlight then data.Highlight.Enabled = false end
-        end
-        return
-    end
-
-    local cam = Workspace.CurrentCamera
-    if not cam then return end
-    local viewportSize = cam.ViewportSize
-    local bottomCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y)
-
-    for model, data in pairs(targets) do
-        if not model or not model.Parent or data.Humanoid.Health <= 0 then
-            removeESP(model)
-        else
-            if data.Highlight then data.Highlight.Enabled = true end
-            local root = data.RootPart
-            local vec, onScreen = cam:WorldToViewportPoint(root.Position)
-
-            if onScreen then
-                local dist = (cam.CFrame.Position - root.Position).Magnitude
-                local sizeY = math.clamp(2500 / dist, 12, 600)
-                local sizeX = sizeY * 0.60
-
-                -- 1. Box
-                data.Box.Visible = true
-                data.Box.Size = UDim2.fromOffset(sizeX, sizeY)
-                data.Box.Position = UDim2.fromOffset(vec.X - (sizeX / 2), vec.Y - (sizeY / 2))
-
-                -- 2. Label
-                data.Label.Visible = true
-                data.Label.Position = UDim2.fromOffset(vec.X, vec.Y - (sizeY / 2) - 5)
-                data.Label.Text = string.format("%s (%d studs)", data.Name, math.floor(dist))
-
-                -- 3. Line (Tracer)
-                local targetPos = Vector2.new(vec.X, vec.Y + (sizeY / 2))
-                local distance = (bottomCenter - targetPos).Magnitude
-                local center = (bottomCenter + targetPos) / 2
-                local angle = math.deg(math.atan2(targetPos.Y - bottomCenter.Y, targetPos.X - bottomCenter.X))
-
-                data.Line.Visible = true
-                data.Line.Size = UDim2.fromOffset(distance, 1.5)
-                data.Line.Position = UDim2.fromOffset(center.X, center.Y)
-                data.Line.Rotation = angle
-            else
-                data.Label.Visible = false
-                data.Box.Visible = false
-                data.Line.Visible = false
+-- ==================== SPEED & JUMP SYSTEM ====================
+local function applyPlayerMods()
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if speedEnabled then
+                hum.WalkSpeed = currentWalkSpeed
             end
-        end
-    end
-end)
-
-toggleBtn.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    if espEnabled then
-        toggleBtn.Text = "ON"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 100)
-        scan()
-    else
-        toggleBtn.Text = "OFF"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
-    end
-end)
-
-Workspace.DescendantAdded:Connect(function(obj)
-    if espEnabled and obj:IsA("Humanoid") and obj.Parent then
-        task.wait(0.5)
-        addESP(obj.Parent)
-    end
-end)
-
-scan()
+            if jumpEnabled th
