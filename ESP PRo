@@ -1,18 +1,15 @@
--- ProFirst | SHOOTER EDITION v5.1 FULL
--- บอท=เขียว / ผู้เล่น=แดง + Box + Ground Tracer + Lock Aim + TriggerBot
--- + Re-scan อัตโนมัติ + ไม่หายตอน respawn
+-- ProFirst | SHOOTER EDITION v5.2 — DELTA EXECUTOR
+-- รันใน Delta: VirtualInputManager แทน mouse1press + pcall ทุกจุดเสี่ยง
 --==================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputService = game:GetService("VirtualInputService")
 
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    warn("[ProFirst] ไม่พบ LocalPlayer")
-    return
-end
+if not LocalPlayer then warn("[ProFirst] ไม่พบ LocalPlayer") return end
 
 --==================================================
 -- CONFIG / STATE
@@ -26,49 +23,32 @@ local SCAN_INTERVAL      = 2
 
 local running = true
 local state = {
-    Master = false,
-    Highlight = true,
-    Box = true,
-    Tracer = true,
-    Distance = true,
-    NameTag = true,
-    HealthBar = true,
-    LockNear = true,
-    LockAim = false,
-    AimSmooth = 12,
-    AimPart = "Head",
-    AimFOV = 250,
-    ShowFOV = true,
-    TriggerBot = false,
-    TriggerDelay = 0.08,
-    TeamCheck = true,
-    AutoScan = true,
+    Master = false, Highlight = true, Box = true, Tracer = true,
+    Distance = true, NameTag = true, HealthBar = true, LockNear = true,
+    LockAim = false, AimSmooth = 12, AimPart = "Head", AimFOV = 250,
+    ShowFOV = true, TriggerBot = false, TriggerDelay = 0.08,
+    TeamCheck = true, AutoScan = true,
 }
 
-local nearDistance = 10
-local targets = {}
-local connections = {}
-local pendingRemoval = {}
-local Window
-local lockedTarget = nil
-local fovCircle = nil
-local Fluent = nil
+local nearDistance  = 10
+local targets       = {}
+local connections   = {}
+local pendingRemoval= {}
+local Window, lockedTarget, fovCircle, Fluent
 local lastShot = 0
 
 --==================================================
 -- HELPERS
 --==================================================
 
-local function connect(signal, callback)
-    local c = signal:Connect(callback)
+local function connect(signal, cb)
+    local c = signal:Connect(cb)
     table.insert(connections, c)
     return c
 end
 
 local function disconnectAll()
-    for _, c in ipairs(connections) do
-        pcall(function() c:Disconnect() end)
-    end
+    for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
     table.clear(connections)
 end
 
@@ -101,6 +81,18 @@ local function isTarget(model)
     return model:FindFirstChildOfClass("Humanoid") ~= nil
 end
 
+-- Delta ยิงเมาส์: ใช้ VirtualInputManager (ฟรีใน Delta)
+local function deltaClick()
+    pcall(function()
+        VirtualInputService:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.delay(0.05, function()
+            pcall(function()
+                VirtualInputService:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            end)
+        end)
+    end)
+end
+
 --==================================================
 -- FOV CIRCLE
 --==================================================
@@ -116,16 +108,13 @@ local function createFOV()
     f.Visible = false
     f.Parent = espGui
     Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = BOT_COLOR
-    stroke.Thickness = 1
-    stroke.Transparency = 0.5
-    stroke.Parent = f
+    local s = Instance.new("UIStroke")
+    s.Color = BOT_COLOR; s.Thickness = 1; s.Transparency = 0.5; s.Parent = f
     fovCircle = f
 end
 
 --==================================================
--- CREATE / REMOVE ENTRY
+-- TARGET ENTRY
 --==================================================
 
 local function removeTarget(model)
@@ -133,9 +122,7 @@ local function removeTarget(model)
     if not e then return end
     if lockedTarget == model then lockedTarget = nil end
     targets[model] = nil
-    for _, obj in pairs(e) do
-        pcall(function() obj:Destroy() end)
-    end
+    for _, obj in pairs(e) do pcall(function() obj:Destroy() end) end
 end
 
 local function deferRemove(model)
@@ -149,74 +136,46 @@ end
 
 local function addTarget(model)
     if not running or not state.Master then return end
-    if not isTarget(model) or targets[model] then return end
-    if pendingRemoval[model] then return end
+    if not isTarget(model) or targets[model] or pendingRemoval[model] then return end
 
     local col = colorFor(model)
 
     local box = Instance.new("Frame")
-    box.Name = "Box"
-    box.BackgroundTransparency = 1
-    box.BorderSizePixel = 0
-    box.Visible = false
-    box.Parent = espGui
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = col
-    stroke.Thickness = 1.5
-    stroke.Parent = box
+    box.Name = "Box"; box.BackgroundTransparency = 1
+    box.BorderSizePixel = 0; box.Visible = false; box.Parent = espGui
+    local st = Instance.new("UIStroke")
+    st.Color = col; st.Thickness = 1.5; st.Parent = box
 
-    local tracer = Instance.new("Frame")
-    tracer.Name = "Tracer"
-    tracer.BackgroundColor3 = col
-    tracer.BorderSizePixel = 0
-    tracer.AnchorPoint = Vector2.new(0.5, 0.5)
-    tracer.Visible = false
-    tracer.Parent = espGui
+    local tr = Instance.new("Frame")
+    tr.Name = "Tracer"; tr.BackgroundColor3 = col; tr.BorderSizePixel = 0
+    tr.AnchorPoint = Vector2.new(0.5, 0.5); tr.Visible = false; tr.Parent = espGui
 
-    local label = Instance.new("TextLabel")
-    label.Name = "Distance"
-    label.BackgroundTransparency = 1
-    label.TextColor3 = col
-    label.TextStrokeTransparency = 0
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 13
-    label.Size = UDim2.fromOffset(150, 16)
-    label.AnchorPoint = Vector2.new(0.5, 1)
-    label.Visible = false
-    label.Parent = espGui
+    local lb = Instance.new("TextLabel")
+    lb.Name = "Distance"; lb.BackgroundTransparency = 1
+    lb.TextColor3 = col; lb.TextStrokeTransparency = 0
+    lb.Font = Enum.Font.GothamBold; lb.TextSize = 13
+    lb.Size = UDim2.fromOffset(150, 16)
+    lb.AnchorPoint = Vector2.new(0.5, 1); lb.Visible = false; lb.Parent = espGui
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "NameTag"
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.TextColor3 = Color3.new(1, 1, 1)
-    nameLabel.TextStrokeTransparency = 0
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 12
-    nameLabel.Size = UDim2.fromOffset(170, 14)
-    nameLabel.AnchorPoint = Vector2.new(0.5, 0)
-    nameLabel.Visible = false
-    nameLabel.Parent = espGui
+    local nl = Instance.new("TextLabel")
+    nl.Name = "NameTag"; nl.BackgroundTransparency = 1
+    nl.TextColor3 = Color3.new(1, 1, 1); nl.TextStrokeTransparency = 0
+    nl.Font = Enum.Font.GothamBold; nl.TextSize = 12
+    nl.Size = UDim2.fromOffset(170, 14)
+    nl.AnchorPoint = Vector2.new(0.5, 0); nl.Visible = false; nl.Parent = espGui
     local plr = Players:GetPlayerFromCharacter(model)
-    nameLabel.Text = plr and plr.Name or model.Name
+    nl.Text = plr and plr.Name or model.Name
 
-    local hpBack = Instance.new("Frame")
-    hpBack.Name = "HPBack"
-    hpBack.BackgroundColor3 = Color3.new(0, 0, 0)
-    hpBack.BackgroundTransparency = 0.4
-    hpBack.BorderSizePixel = 0
-    hpBack.Visible = false
-    hpBack.Parent = espGui
+    local hb = Instance.new("Frame")
+    hb.Name = "HPBack"; hb.BackgroundColor3 = Color3.new(0, 0, 0)
+    hb.BackgroundTransparency = 0.4; hb.BorderSizePixel = 0
+    hb.Visible = false; hb.Parent = espGui
 
-    local hpFill = Instance.new("Frame")
-    hpFill.Name = "HPFill"
-    hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
-    hpFill.BorderSizePixel = 0
-    hpFill.Parent = hpBack
+    local hf = Instance.new("Frame")
+    hf.Name = "HPFill"; hf.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+    hf.BorderSizePixel = 0; hf.Parent = hb
 
-    targets[model] = {
-        Box = box, Tracer = tracer, Label = label,
-        NameLabel = nameLabel, HPBack = hpBack, HPFill = hpFill
-    }
+    targets[model] = { Box = box, Tracer = tr, Label = lb, NameLabel = nl, HPBack = hb, HPFill = hf }
 end
 
 local function syncHighlight(model, e)
@@ -224,12 +183,9 @@ local function syncHighlight(model, e)
         e.Highlight = nil
         local ok, h = pcall(function()
             local hl = Instance.new("Highlight")
-            hl.Name = "ProFirstHL"
-            hl.Adornee = model
-            hl.FillColor = colorFor(model)
-            hl.OutlineColor = colorFor(model)
-            hl.FillTransparency = FILL_TRANSPARENCY
-            hl.OutlineTransparency = 0
+            hl.Name = "ProFirstHL"; hl.Adornee = model
+            hl.FillColor = colorFor(model); hl.OutlineColor = colorFor(model)
+            hl.FillTransparency = FILL_TRANSPARENCY; hl.OutlineTransparency = 0
             hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             hl.Parent = model
             return hl
@@ -253,29 +209,25 @@ end
 
 local function scanAll()
     if not running or not state.Master then return end
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Humanoid") and obj.Parent then
-            addTarget(obj.Parent)
+    pcall(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("Humanoid") and obj.Parent then addTarget(obj.Parent) end
         end
-    end
+    end)
     for _, plr in ipairs(Players:GetPlayers()) do
         local ch = plr.Character
-        if ch and ch:FindFirstChildOfClass("Humanoid") then
-            addTarget(ch)
-        end
+        if ch and ch:FindFirstChildOfClass("Humanoid") then addTarget(ch) end
     end
 end
 
 --==================================================
--- EVENTS: Workspace
+-- EVENTS
 --==================================================
 
 connect(Workspace.DescendantAdded, function(obj)
     if not running or not state.Master then return end
     if obj:IsA("Humanoid") then
-        task.defer(function()
-            if obj.Parent then addTarget(obj.Parent) end
-        end)
+        task.defer(function() if obj.Parent then addTarget(obj.Parent) end end)
     elseif obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
         task.defer(function() addTarget(obj) end)
     end
@@ -283,16 +235,12 @@ end)
 
 connect(Workspace.DescendantRemoving, function(obj)
     if obj:IsA("Humanoid") then
-        local parent = obj.Parent
-        if parent then deferRemove(parent) end
+        local p = obj.Parent
+        if p then deferRemove(p) end
     elseif obj:IsA("Model") and targets[obj] then
         deferRemove(obj)
     end
 end)
-
---==================================================
--- EVENTS: ผู้เล่นเข้า / respawn
---==================================================
 
 local function hookPlayer(plr)
     if plr == LocalPlayer then return end
@@ -300,7 +248,7 @@ local function hookPlayer(plr)
         task.defer(function()
             task.wait(0.25)
             if running and state.Master and ch then
-                ch:WaitForChild("Humanoid", 5)
+                pcall(function() ch:WaitForChild("Humanoid", 5) end)
                 addTarget(ch)
             end
         end)
@@ -308,37 +256,29 @@ local function hookPlayer(plr)
 end
 
 connect(Players.PlayerAdded, hookPlayer)
-for _, plr in ipairs(Players:GetPlayers()) do
-    hookPlayer(plr)
-end
+for _, plr in ipairs(Players:GetPlayers()) do hookPlayer(plr) end
 
 connect(LocalPlayer.CharacterAdded, function()
     task.defer(function()
-        if running and state.Master then
-            task.wait(0.3)
-            scanAll()
-        end
+        if running and state.Master then task.wait(0.3) scanAll() end
     end)
 end)
 
---==================================================
 -- AUTO RE-SCANNER
---==================================================
-
 task.spawn(function()
     while running do
         task.wait(SCAN_INTERVAL)
         if running and state.Master and state.AutoScan then
             scanAll()
             for _, child in ipairs(espGui:GetChildren()) do
-                local stillUsed = false
+                local used = false
                 for _, e in pairs(targets) do
                     for _, v in pairs(e) do
-                        if v == child then stillUsed = true break end
+                        if v == child then used = true break end
                     end
-                    if stillUsed then break end
+                    if used then break end
                 end
-                if not stillUsed and child.Name ~= "FOVCircle" then
+                if not used and child.Name ~= "FOVCircle" then
                     pcall(function() child:Destroy() end)
                 end
             end
@@ -347,7 +287,7 @@ task.spawn(function()
 end)
 
 --==================================================
--- AIM HELPERS
+-- AIM
 --==================================================
 
 local function getAimPart(model)
@@ -357,21 +297,19 @@ local function getAimPart(model)
 end
 
 local function findClosestTarget()
-    local camera = Workspace.CurrentCamera
-    if not camera then return nil end
-    local viewport = camera.ViewportSize
-    local center = viewport / 2
-    local best, bestDist = nil, state.AimFOV
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil end
+    local center = cam.ViewportSize / 2
+    local best, bd = nil, state.AimFOV
     for model in pairs(targets) do
         local hum = model:FindFirstChildOfClass("Humanoid")
         local part = getAimPart(model)
         if hum and hum.Health > 0 and part then
-            local sp, onScreen = camera:WorldToViewportPoint(part.Position)
-            if onScreen and sp.Z > 0 then
+            local sp, on = cam:WorldToViewportPoint(part.Position)
+            if on and sp.Z > 0 then
                 local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                local studs = (camera.CFrame.Position - part.Position).Magnitude
-                if d < bestDist and studs <= MAX_DISTANCE then
-                    best, bestDist = model, d
+                if d < bd and (cam.CFrame.Position - part.Position).Magnitude <= MAX_DISTANCE then
+                    best, bd = model, d
                 end
             end
         end
@@ -384,9 +322,7 @@ connect(UserInputService.InputBegan, function(input, gp)
     if input.KeyCode == Enum.KeyCode.Q then
         if lockedTarget then
             lockedTarget = nil
-            pcall(function()
-                Fluent:Notify({ Title = "ProFirst", Content = "ปลดล็อกเป้าแล้ว", Duration = 2 })
-            end)
+            pcall(function() Fluent:Notify({ Title = "ProFirst", Content = "ปลดล็อกเป้าแล้ว", Duration = 2 }) end)
         else
             lockedTarget = findClosestTarget()
             pcall(function()
@@ -408,23 +344,20 @@ end)
 --==================================================
 
 local function hide(e)
-    e.Box.Visible = false
-    e.Tracer.Visible = false
-    e.Label.Visible = false
+    e.Box.Visible = false; e.Tracer.Visible = false; e.Label.Visible = false
     if e.NameLabel then e.NameLabel.Visible = false end
     if e.HPBack then e.HPBack.Visible = false end
 end
 
 connect(RunService.RenderStepped, function(dt)
     if not running or not state.Master then return end
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
 
-    local camera = Workspace.CurrentCamera
-    if not camera then return end
-
-    local viewport = camera.ViewportSize
-    local screenCenter = viewport / 2
-    local origin = Vector2.new(viewport.X / 2, viewport.Y)
-    local camPos = camera.CFrame.Position
+    local vp = cam.ViewportSize
+    local sc = vp / 2
+    local org = Vector2.new(vp.X / 2, vp.Y)
+    local cp = cam.CFrame.Position
 
     if fovCircle then
         fovCircle.Visible = state.LockAim and state.ShowFOV
@@ -433,8 +366,7 @@ connect(RunService.RenderStepped, function(dt)
 
     if lockedTarget then
         local h = lockedTarget:FindFirstChildOfClass("Humanoid")
-        local part = getAimPart(lockedTarget)
-        if not h or h.Health <= 0 or not part then
+        if not h or h.Health <= 0 or not getAimPart(lockedTarget) then
             lockedTarget = nil
         end
     end
@@ -447,112 +379,102 @@ connect(RunService.RenderStepped, function(dt)
             deferRemove(model)
         else
             syncHighlight(model, e)
-
             if hum.Health <= 0 then
                 hide(e)
             else
-                local studs = (camPos - root.Position).Magnitude
+                local studs = (cp - root.Position).Magnitude
                 if studs > MAX_DISTANCE then
                     hide(e)
                 else
-                    local cf, size = model:GetBoundingBox()
-                    local center, onScreen = camera:WorldToViewportPoint(cf.Position)
-                    local topP = camera:WorldToViewportPoint(cf.Position + Vector3.new(0, size.Y / 2, 0))
-                    local botP = camera:WorldToViewportPoint(cf.Position - Vector3.new(0, size.Y / 2, 0))
-                    local pinned = state.LockNear and studs <= nearDistance and center.Z > 0
+                    pcall(function()
+                        local cf, size = model:GetBoundingBox()
+                        local ctr, on = cam:WorldToViewportPoint(cf.Position)
+                        local topP = cam:WorldToViewportPoint(cf.Position + Vector3.new(0, size.Y / 2, 0))
+                        local botP = cam:WorldToViewportPoint(cf.Position - Vector3.new(0, size.Y / 2, 0))
+                        local pinned = state.LockNear and studs <= nearDistance and ctr.Z > 0
 
-                    if center.Z <= 0 or (not pinned and not onScreen) then
-                        hide(e)
-                    else
-                        local height = math.abs(botP.Y - topP.Y)
-                        local cx, cy = center.X, center.Y
-                        if pinned then
-                            cx, cy = screenCenter.X, screenCenter.Y
-                            height = math.min(height, viewport.Y * 0.5)
-                        end
-                        local width = height * 0.6
-                        local col = colorFor(model)
-
-                        e.Box.Visible = state.Box
-                        e.Box.Position = UDim2.fromOffset(cx - width / 2, cy - height / 2)
-                        e.Box.Size = UDim2.fromOffset(width, height)
-
-                        if state.Tracer then
-                            local footY = pinned and (cy + height / 2) or botP.Y
-                            local footX = pinned and cx or botP.X
-                            local target = Vector2.new(footX, footY)
-                            local delta = target - origin
-                            e.Tracer.Visible = true
-                            e.Tracer.Size = UDim2.fromOffset(delta.Magnitude, 1.5)
-                            e.Tracer.Position = UDim2.fromOffset(
-                                (origin.X + target.X) / 2,
-                                (origin.Y + target.Y) / 2
-                            )
-                            e.Tracer.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+                        if ctr.Z <= 0 or (not pinned and not on) then
+                            hide(e)
                         else
-                            e.Tracer.Visible = false
-                        end
+                            local h = math.abs(botP.Y - topP.Y)
+                            local cx, cy = ctr.X, ctr.Y
+                            if pinned then cx, cy = sc.X, sc.Y; h = math.min(h, vp.Y * 0.5) end
+                            local w = h * 0.6
+                            local col = colorFor(model)
 
-                        if state.Distance then
-                            e.Label.Visible = true
-                            e.Label.TextColor3 = col
-                            e.Label.Text = string.format(
-                                "%s%d studs",
-                                isBot(model) and "[BOT] " or "[P] ",
-                                math.floor(studs + 0.5)
-                            )
-                            e.Label.Position = UDim2.fromOffset(cx, cy - height / 2 - 2)
-                        else
-                            e.Label.Visible = false
-                        end
+                            e.Box.Visible = state.Box
+                            e.Box.Position = UDim2.fromOffset(cx - w / 2, cy - h / 2)
+                            e.Box.Size = UDim2.fromOffset(w, h)
 
-                        if state.NameTag and e.NameLabel then
-                            local plr = Players:GetPlayerFromCharacter(model)
-                            e.NameLabel.Text = plr and plr.Name or model.Name
-                            e.NameLabel.Visible = true
-                            e.NameLabel.Position = UDim2.fromOffset(cx, cy + height / 2 + 2)
-                        elseif e.NameLabel then
-                            e.NameLabel.Visible = false
-                        end
+                            if state.Tracer then
+                                local fy = pinned and (cy + h / 2) or botP.Y
+                                local fx = pinned and cx or botP.X
+                                local tgt = Vector2.new(fx, fy)
+                                local dl = tgt - org
+                                e.Tracer.Visible = true
+                                e.Tracer.Size = UDim2.fromOffset(dl.Magnitude, 1.5)
+                                e.Tracer.Position = UDim2.fromOffset((org.X + tgt.X) / 2, (org.Y + tgt.Y) / 2)
+                                e.Tracer.Rotation = math.deg(math.atan2(dl.Y, dl.X))
+                            else
+                                e.Tracer.Visible = false
+                            end
 
-                        if state.HealthBar and e.HPBack and e.HPFill then
-                            local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-                            e.HPBack.Visible = true
-                            e.HPBack.Position = UDim2.fromOffset(cx - width / 2 - 8, cy - height / 2)
-                            e.HPBack.Size = UDim2.fromOffset(4, height)
-                            e.HPFill.Size = UDim2.fromScale(1, ratio)
-                            e.HPFill.Position = UDim2.fromScale(0, 1 - ratio)
-                            e.HPFill.BackgroundColor3 = Color3.fromRGB(
-                                math.floor(255 * (1 - ratio)),
-                                math.floor(255 * ratio),
-                                0
-                            )
-                        elseif e.HPBack then
-                            e.HPBack.Visible = false
+                            if state.Distance then
+                                e.Label.Visible = true
+                                e.Label.TextColor3 = col
+                                e.Label.Text = string.format("%s%d studs",
+                                    isBot(model) and "[BOT] " or "[P] ",
+                                    math.floor(studs + 0.5))
+                                e.Label.Position = UDim2.fromOffset(cx, cy - h / 2 - 2)
+                            else
+                                e.Label.Visible = false
+                            end
+
+                            if state.NameTag and e.NameLabel then
+                                local plr = Players:GetPlayerFromCharacter(model)
+                                e.NameLabel.Text = plr and plr.Name or model.Name
+                                e.NameLabel.Visible = true
+                                e.NameLabel.Position = UDim2.fromOffset(cx, cy + h / 2 + 2)
+                            elseif e.NameLabel then
+                                e.NameLabel.Visible = false
+                            end
+
+                            if state.HealthBar and e.HPBack and e.HPFill then
+                                local r = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                                e.HPBack.Visible = true
+                                e.HPBack.Position = UDim2.fromOffset(cx - w / 2 - 8, cy - h / 2)
+                                e.HPBack.Size = UDim2.fromOffset(4, h)
+                                e.HPFill.Size = UDim2.fromScale(1, r)
+                                e.HPFill.Position = UDim2.fromScale(0, 1 - r)
+                                e.HPFill.BackgroundColor3 = Color3.fromRGB(
+                                    math.floor(255 * (1 - r)), math.floor(255 * r), 0)
+                            elseif e.HPBack then
+                                e.HPBack.Visible = false
+                            end
                         end
-                    end
+                    end)
                 end
             end
         end
     end
 
-    -- AIM LOCK
+    -- AIM LOCK (Delta: หมุน CFrame ตรงๆ ไม่ต้องง้อ MouseOffset)
     if state.LockAim and lockedTarget then
         local part = getAimPart(lockedTarget)
         if part then
-            local sp = camera:WorldToViewportPoint(part.Position)
+            local sp = cam:WorldToViewportPoint(part.Position)
             if sp.Z > 0 then
-                local targetPos = Vector2.new(sp.X, sp.Y)
-                local center = viewport / 2
-                local delta = (targetPos - center) * math.clamp(state.AimSmooth * dt, 0, 1)
-                camera.CFrame = camera.CFrame * CFrame.new(delta.X * 0.5, -delta.Y * 0.5, 0)
+                local tp = Vector2.new(sp.X, sp.Y)
+                local c2 = vp / 2
+                local alpha = math.clamp(state.AimSmooth * dt, 0, 1)
+                local goalCF = CFrame.lookAt(cam.CFrame.Position, part.Position)
+                cam.CFrame = cam.CFrame:Lerp(goalCF, alpha)
 
                 if state.TriggerBot then
-                    local dist = (targetPos - center).Magnitude
-                    if dist < 12 and (os.clock() - lastShot) >= state.TriggerDelay then
+                    local d = (tp - c2).Magnitude
+                    if d < 14 and (os.clock() - lastShot) >= state.TriggerDelay then
                         lastShot = os.clock()
-                        mouse1press()
-                        task.delay(0.05, function() mouse1release() end)
+                        deltaClick()
                     end
                 end
             end
@@ -561,213 +483,152 @@ connect(RunService.RenderStepped, function(dt)
 end)
 
 --==================================================
--- LOAD FLUENT
+-- LOAD FLUENT (Delta: หลายตัวบล็อก HttpGet — fallback หน้าต่างเอง)
 --==================================================
 
 local function loadFluent()
     local ok, result = pcall(function()
-        local source = game:HttpGet(
-            "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
-        )
-        assert(type(source) == "string" and #source > 0, "โหลด Fluent ไม่สำเร็จ")
-        local compiler, err = loadstring(source)
-        assert(compiler, err or "Compile error")
-        return compiler()
+        local src = game:HttpGet(
+            "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua", true)
+        assert(type(src) == "string" and #src > 0)
+        local fn, err = loadstring(src)
+        assert(fn, err)
+        return fn()
     end)
-    if not ok then
-        warn("[ProFirst] โหลด Fluent ไม่สำเร็จ:", result)
-        return nil
-    end
-    return result
+    return ok and result or nil
 end
 
 Fluent = loadFluent()
 if not Fluent then
-    disconnectAll()
-    espGui:Destroy()
-    return
+    warn("[ProFirst] Delta บล็อก Fluent — ใช้ GUI สำรอง")
 end
 
 --==================================================
--- WINDOW + UI
+-- WINDOW + UI (มี/ไม่มี Fluent ก็รันได้)
 --==================================================
 
-local ok, result = pcall(function()
-    return Fluent:CreateWindow({
-        Title = "ProFirst | Shooter Edition v5.1",
-        SubTitle = "บอทเขียว / ผู้เล่นแดง + Lock Aim + TriggerBot",
-        TabWidth = 160,
-        Size = UDim2.fromOffset(560, 460),
-        Acrylic = false,
-        Theme = "Dark",
-        MinimizeKey = Enum.KeyCode.LeftControl
-    })
-end)
-
-if not ok or not result then
-    warn("[ProFirst] สร้างหน้าต่างไม่สำเร็จ:", result)
-    disconnectAll()
-    espGui:Destroy()
-    return
-end
-
-Window = result
-
-local MainTab     = Window:AddTab({ Title = "หน้าหลัก", Icon = "eye" })
-local AimTab      = Window:AddTab({ Title = "เล็งเป้า", Icon = "crosshair" })
-local SettingsTab = Window:AddTab({ Title = "ตั้งค่า", Icon = "settings" })
-
-MainTab:AddParagraph({
-    Title = "ProFirst Shooter Edition v5.1",
-    Content = "บอท=เขียว | ผู้เล่น=แดง | 2500 studs | Q=ล็อกเป้า | Re-scan อัตโนมัติ"
-})
-
-local MasterToggle = MainTab:AddToggle("ProFirstMaster", {
-    Title = "เปิด/ปิดระบบทั้งหมด",
-    Description = "เปิดเพื่อเริ่มแสดงผล",
-    Default = false
-})
-
-MasterToggle:OnChanged(function(value)
-    if not running then return end
-    state.Master = value
-    if value then
-        scanAll()
-    else
-        clearAll()
-    end
-    Fluent:Notify({
-        Title = "ProFirst",
-        Content = value and "เปิดระบบแล้ว" or "ปิดระบบแล้ว",
-        Duration = 3
-    })
-end)
-
-local function addOption(tab, key, title, desc)
-    local t = tab:AddToggle("ProFirst" .. key, {
-        Title = title,
-        Description = desc,
-        Default = state[key]
-    })
-    t:OnChanged(function(value)
-        state[key] = value
+if Fluent then
+    local ok, res = pcall(function()
+        return Fluent:CreateWindow({
+            Title = "ProFirst | Delta Edition v5.2",
+            SubTitle = "บอทเขียว / ผู้เล่นแดง + Lock Aim",
+            TabWidth = 160, Size = UDim2.fromOffset(560, 460),
+            Acrylic = false, Theme = "Dark",
+            MinimizeKey = Enum.KeyCode.LeftControl
+        })
     end)
-    return t
+    if ok and res then Window = res end
 end
 
--- SETTINGS TAB
-addOption(SettingsTab, "Highlight", "Highlight เรืองแสง", "ทะลุทุกอย่าง AlwaysOnTop")
-addOption(SettingsTab, "Box", "กรอบรอบตัวละคร", "สี่เหลี่ยมล้อมรอบตัว")
-addOption(SettingsTab, "Tracer", "เส้นโยงที่พื้น", "จากมุมล่างกลางจอไปเท้าเป้า")
-addOption(SettingsTab, "Distance", "ระยะห่าง + ป้าย [BOT]/[P]", "แสดงระยะหน่วย studs")
-addOption(SettingsTab, "NameTag", "ชื่อผู้เล่น", "แสดงชื่อใต้กรอบ")
-addOption(SettingsTab, "HealthBar", "แถบเลือด", "ข้างกรอบ เขียว→แดงตามเลือด")
-addOption(SettingsTab, "LockNear", "ล็อคกรอบกลางจอเมื่อใกล้", "ระยะใกล้กว่าที่กำหนด")
-addOption(SettingsTab, "AutoScan", "สแกนอัตโนมัติ (ไม่ให้หาย)", "เติมเป้าใหม่/ลบของเก่าอัตโนมัติ")
-
--- AIM TAB
-addOption(AimTab, "LockAim", "ล็อคเป้า (กด Q)", "กด Q = ล็อก/ปลดล็อก เป้าใกล้กางเขน")
-addOption(AimTab, "ShowFOV", "แสดงวงกลม FOV", "วงเขียวรอบกลางจอ")
-addOption(AimTab, "TriggerBot", "ยิงอัตโนมัติ", "กางเขนอยู่บนเป้า = ยิงเลย")
-addOption(AimTab, "TeamCheck", "ข้ามทีมเดียวกัน", "ไม่ล็อก/ไม่แสดงเพื่อนร่วมทีม")
-
-local AimPartDrop = AimTab:AddDropdown("ProFirstAimPart", {
-    Title = "จุดเล็ง",
-    Values = { "Head", "HumanoidRootPart" },
-    Value = state.AimPart
-})
-AimPartDrop:OnChanged(function(v) state.AimPart = v end)
-
-local SmoothSlider = AimTab:AddSlider("ProFirstSmooth", {
-    Title = "ความนุ่ม (Smooth)",
-    Description = "ยิ่งน้อยยิ่งเร็ว ยิ่งมากยิ่งนุ่ม",
-    Default = state.AimSmooth,
-    Min = 1, Max = 30, Rounding = 1
-})
-SmoothSlider:OnChanged(function(v) state.AimSmooth = v end)
-
-local FOVSlider = AimTab:AddSlider("ProFirstFOV", {
-    Title = "รัศมีค้นเป้า (FOV)",
-    Description = "px รอบกางเขน",
-    Default = state.AimFOV,
-    Min = 50, Max = 600, Rounding = 0
-})
-FOVSlider:OnChanged(function(v) state.AimFOV = v end)
-
-local DelaySlider = AimTab:AddSlider("ProFirstTriggerDelay", {
-    Title = "หน่วงเวลายิง (ms)",
-    Description = "มิลลิวินาที",
-    Default = state.TriggerDelay * 1000,
-    Min = 30, Max = 500, Rounding = 0
-})
-DelaySlider:OnChanged(function(v) state.TriggerDelay = v / 1000 end)
-
--- SETTINGS SLIDERS
-local NearSlider = SettingsTab:AddSlider("ProFirstNearDistance", {
-    Title = "ระยะใกล้ตัว (studs)",
-    Description = "ล็อกกรอบกลางจอเมื่อใกล้กว่านี้",
-    Default = nearDistance,
-    Min = 3, Max = 40, Rounding = 0
-})
-NearSlider:OnChanged(function(v) nearDistance = v end)
-
-local MaxSlider = SettingsTab:AddSlider("ProFirstMaxDistance", {
-    Title = "ระยะสูงสุด (studs)",
-    Description = "เกินนี้ไม่แสดง",
-    Default = MAX_DISTANCE,
-    Min = 100, Max = 2500, Rounding = 0
-})
-MaxSlider:OnChanged(function(v) MAX_DISTANCE = v end)
-
-local ScanSlider = SettingsTab:AddSlider("ProFirstScanInterval", {
-    Title = "สแกนใหม่ทุก (วินาที)",
-    Description = "ยิ่งน้อยยิ่งอัปเดตบ่อย",
-    Default = SCAN_INTERVAL,
-    Min = 1, Max = 10, Rounding = 0
-})
-ScanSlider:OnChanged(function(v) SCAN_INTERVAL = math.max(1, v) end)
-
--- BUTTONS
-MainTab:AddButton({
-    Title = "รีเฟรชทันที",
-    Description = "สแกนเป้าใหม่ทั้งหมด",
-    Callback = function()
-        if running then
-            scanAll()
-            Fluent:Notify({ Title = "ProFirst", Content = "รีเฟรชเสร็จแล้ว", Duration = 3 })
-        end
+local function notify(title, msg, dur)
+    if Fluent then
+        pcall(function() Fluent:Notify({ Title = title, Content = msg, Duration = dur or 3 }) end)
+    else
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = title, Text = msg, Duration = dur or 3
+        })
     end
-})
+end
 
-MainTab:AddButton({
-    Title = "หยุดระบบทั้งหมด",
-    Description = "ลบ GUI + ตัด Event ทั้งหมด",
-    Callback = function()
+if Window then
+    local MainTab     = Window:AddTab({ Title = "หน้าหลัก", Icon = "eye" })
+    local AimTab      = Window:AddTab({ Title = "เล็งเป้า", Icon = "crosshair" })
+    local SettingsTab = Window:AddTab({ Title = "ตั้งค่า", Icon = "settings" })
+
+    MainTab:AddParagraph({
+        Title = "ProFirst Delta Edition",
+        Content = "บอท=เขียว | ผู้เล่น=แดง | 2500 studs | Q=ล็อก | Delta-ready"
+    })
+
+    local mt = MainTab:AddToggle("ProFirstMaster", {
+        Title = "เปิด/ปิดระบบทั้งหมด", Description = "เปิดเพื่อเริ่มแสดงผล", Default = false
+    })
+    mt:OnChanged(function(v)
         if not running then return end
-        running = false
-        state.Master = false
-        lockedTarget = nil
-        if fovCircle then pcall(function() fovCircle:Destroy() end) fovCircle = nil end
-        clearAll()
-        disconnectAll()
-        espGui:Destroy()
-        pcall(function()
-            Fluent:Notify({ Title = "ProFirst", Content = "หยุดระบบแล้ว", Duration = 2 })
-        end)
-        task.delay(0.3, function()
-            pcall(function() Window:Minimize() end)
-        end)
+        state.Master = v
+        if v then scanAll() else clearAll() end
+        notify("ProFirst", v and "เปิดระบบแล้ว" or "ปิดระบบแล้ว")
+    end)
+
+    local function addOpt(tab, key, t, d)
+        local o = tab:AddToggle("ProFirst" .. key, { Title = t, Description = d, Default = state[key] })
+        o:OnChanged(function(v) state[key] = v end)
     end
-})
 
--- INIT
-createFOV()
-Window:SelectTab(1)
+    addOpt(SettingsTab, "Highlight", "Highlight ทะลุกำแพง", "AlwaysOnTop")
+    addOpt(SettingsTab, "Box", "กรอบรอบตัวละคร", "สี่เหลี่ยมล้อมรอบตัว")
+    addOpt(SettingsTab, "Tracer", "เส้นโยงที่พื้น", "ล่างจอ → เท้าเป้า")
+    addOpt(SettingsTab, "Distance", "ระยะห่าง [BOT]/[P]", "หน่วย studs")
+    addOpt(SettingsTab, "NameTag", "ชื่อผู้เล่น", "ใต้กรอบ")
+    addOpt(SettingsTab, "HealthBar", "แถบเลือด", "เขียว→แดง")
+    addOpt(SettingsTab, "LockNear", "ล็อกกรอบกลางจอเมื่อใกล้", "ตามระยะตั้ง")
+    addOpt(SettingsTab, "AutoScan", "สแกนอัตโนมัติ", "ไม่ให้เป้าหาย")
 
-Fluent:Notify({
-    Title = "ProFirst",
-    Content = "v5.1 โหลดสำเร็จ — บอทเขียว ผู้เล่นแดง AutoScan",
-    Duration = 5
-})
+    addOpt(AimTab, "LockAim", "ล็อคเป้า (Q)", "Q=ล็อก/ปลด")
+    addOpt(AimTab, "ShowFOV", "วงกลม FOV", "รอบกลางจอ")
+    addOpt(AimTab, "TriggerBot", "ยิงอัตโนมัติ", "กางเขนบนเป้า=ยิง (VIM)")
+    addOpt(AimTab, "TeamCheck", "ข้ามทีมเดียวกัน", "ไม่ล็อกเพื่อน")
 
-print("[ProFirst] v5.1 FULL loaded (Bot=Green, Player=Red, AutoScan=ON, LockAim+TriggerBot)")
+    local ap = AimTab:AddDropdown("ProFirstAimPart", {
+        Title = "จุดเล็ง", Values = { "Head", "HumanoidRootPart" }, Value = state.AimPart
+    })
+    ap:OnChanged(function(v) state.AimPart = v end)
+
+    local sm = AimTab:AddSlider("ProFirstSmooth", {
+        Title = "Smooth", Default = state.AimSmooth, Min = 1, Max = 30, Rounding = 1
+    })
+    sm:OnChanged(function(v) state.AimSmooth = v end)
+
+    local fv = AimTab:AddSlider("ProFirstFOV", {
+        Title = "FOV (px)", Default = state.AimFOV, Min = 50, Max = 600, Rounding = 0
+    })
+    fv:OnChanged(function(v) state.AimFOV = v end)
+
+    local dl = AimTab:AddSlider("ProFirstDelay", {
+        Title = "หน่วงยิง (ms)", Default = state.TriggerDelay * 1000, Min = 30, Max = 500, Rounding = 0
+    })
+    dl:OnChanged(function(v) state.TriggerDelay = v / 1000 end)
+
+    local nd = SettingsTab:AddSlider("ProFirstNear", {
+        Title = "ระยะใกล้ (studs)", Default = nearDistance, Min = 3, Max = 40, Rounding = 0
+    })
+    nd:OnChanged(function(v) nearDistance = v end)
+
+    local mx = SettingsTab:AddSlider("ProFirstMax", {
+        Title = "ระยะสูงสุด (studs)", Default = MAX_DISTANCE, Min = 100, Max = 2500, Rounding = 0
+    })
+    mx:OnChanged(function(v) MAX_DISTANCE = v end)
+
+    local si = SettingsTab:AddSlider("ProFirstScan", {
+        Title = "สแกนทุก (วินาที)", Default = SCAN_INTERVAL, Min = 1, Max = 10, Rounding = 0
+    })
+    si:OnChanged(function(v) SCAN_INTERVAL = math.max(1, v) end)
+
+    MainTab:AddButton({
+        Title = "รีเฟรชทันที", Callback = function()
+            if running then scanAll() notify("ProFirst", "รีเฟรชเสร็จแล้ว") end
+        end
+    })
+
+    MainTab:AddButton({
+        Title = "หยุดทั้งหมด", Callback = function()
+            if not running then return end
+            running = false; state.Master = false; lockedTarget = nil
+            if fovCircle then pcall(function() fovCircle:Destroy() end) fovCircle = nil end
+            clearAll(); disconnectAll(); espGui:Destroy()
+            notify("ProFirst", "หยุดระบบแล้ว", 2)
+            task.delay(0.3, function() if Window then pcall(function() Window:Minimize() end) end end)
+        end
+    })
+
+    createFOV()
+    Window:SelectTab(1)
+else
+    -- ไม่มี Fluent = เปิด auto ใช้ Q ล็อก ตามค่า default
+    state.Master = true
+    scanAll()
+    notify("ProFirst", "Delta mode: เปิด auto, Q=ล็อกเป้า", 5)
+end
+
+notify("ProFirst", "v5.2 Delta โหลดสำเร็จ — บอทเขียว ผู้เล่นแดง", 5)
+print("[ProFirst] v5.2 DELTA loaded")
